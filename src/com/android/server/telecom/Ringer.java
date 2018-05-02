@@ -24,10 +24,12 @@ import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.Ringtone;
 import android.media.VolumeShaper;
+import android.provider.Settings;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.UserHandle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.telecom.Log;
@@ -35,6 +37,7 @@ import android.telecom.TelecomManager;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.telecom.LogUtils.EventTimer;
+import com.android.internal.util.syberia.SyberiaUtils;
 
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
@@ -166,6 +169,8 @@ public class Ringer {
     private boolean mIsVibrating = false;
 
     private Handler mHandler = null;
+
+    private boolean mIsFlash = false;
 
     /** Initializes the Ringer. */
     @VisibleForTesting
@@ -333,6 +338,12 @@ public class Ringer {
                     isVibratorEnabled, attributes.isRingerAudible());
         }
 
+        if (!mIsFlash && Settings.System.getIntForUser(mContext.getContentResolver(),
+                Settings.System.FLASH_ON_CALL_WAITING, 0, UserHandle.USER_CURRENT) == 1) {
+            SyberiaUtils.toggleCameraFlashOn();
+            mIsFlash = true;
+        }
+
         return attributes.shouldAcquireAudioFocus();
     }
 
@@ -429,6 +440,11 @@ public class Ringer {
             mVibrator.cancel();
             mIsVibrating = false;
             mVibratingCall = null;
+        }
+
+        if (mIsFlash && Settings.System.getIntForUser(mContext.getContentResolver(), Settings.System.FLASH_ON_CALL_WAITING, 0, UserHandle.USER_CURRENT) == 1) {
+            SyberiaUtils.toggleCameraFlashOff();
+            mIsFlash = false;
         }
     }
 
