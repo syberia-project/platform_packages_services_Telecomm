@@ -29,10 +29,13 @@ import android.media.Ringtone;
 import android.media.VolumeShaper;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.UserHandle;
 import android.os.Vibrator;
+import android.provider.Settings;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.telecom.LogUtils.EventTimer;
+import com.android.internal.util.syberia.SyberiaUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -160,6 +163,8 @@ public class Ringer {
      * Used to track the status of {@link #mVibrator} in the case of simultaneous incoming calls.
      */
     private boolean mIsVibrating = false;
+
+    private boolean mIsFlash = false;
 
     /** Initializes the Ringer. */
     @VisibleForTesting
@@ -346,6 +351,11 @@ public class Ringer {
                     isRingerAudible);
         }
 
+        if (!mIsFlash && Settings.System.getIntForUser(mContext.getContentResolver(),  Settings.System.FLASH_ON_CALL_WAITING, 0, UserHandle.USER_CURRENT) == 1) {
+            SyberiaUtils.toggleCameraFlashOn();
+            mIsFlash = true;
+        }
+
         return shouldAcquireAudioFocus;
     }
 
@@ -442,6 +452,11 @@ public class Ringer {
             mVibrator.cancel();
             mIsVibrating = false;
             mVibratingCall = null;
+        }
+
+        if (mIsFlash && Settings.System.getIntForUser(mContext.getContentResolver(), Settings.System.FLASH_ON_CALL_WAITING, 0, UserHandle.USER_CURRENT) == 1) {
+            SyberiaUtils.toggleCameraFlashOff();
+            mIsFlash = false;
         }
     }
 
