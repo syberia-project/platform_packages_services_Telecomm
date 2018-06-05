@@ -26,10 +26,13 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.Person;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.hardware.camera2.CameraManager;
 import android.media.AudioManager;
 import android.media.Ringtone;
 import android.media.VolumeShaper;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -169,6 +172,8 @@ public class Ringer {
      */
     private CompletableFuture<Void> mBlockOnRingingFuture = null;
 
+    private TorchToggler torchToggler;
+
     private InCallTonePlayer mCallWaitingPlayer;
     private RingtoneFactory mRingtoneFactory;
     private AudioManager mAudioManager;
@@ -189,6 +194,7 @@ public class Ringer {
     private boolean mIsVibrating = false;
 
     private Handler mHandler = null;
+    private int torchMode;
 
     /**
      * Use lock different from the Telecom sync because ringing process is asynchronous outside that
@@ -223,6 +229,7 @@ public class Ringer {
         mVibrationEffectProxy = vibrationEffectProxy;
         mNotificationManager = notificationManager;
         mAccessibilityManagerAdapter = accessibilityManagerAdapter;
+        torchToggler = new TorchToggler(context);
 
         if (mContext.getResources().getBoolean(R.bool.use_simple_vibration_pattern)) {
             mDefaultVibrationEffect = mVibrationEffectProxy.createWaveform(SIMPLE_VIBRATION_PATTERN,
@@ -310,20 +317,31 @@ public class Ringer {
 
             stopCallWaiting();
 
-            final boolean shouldFlash = attributes.shouldRingForContact();
-            if (mAccessibilityManagerAdapter != null && shouldFlash) {
-                Log.addEvent(foregroundCall, LogUtils.Events.FLASH_NOTIFICATION_START);
-                getHandler().post(() ->
-                        mAccessibilityManagerAdapter.startFlashNotificationSequence(mContext,
-                                AccessibilityManager.FLASH_REASON_CALL));
-            }
-
             // Determine if the settings and DND mode indicate that the vibrator can be used right
             // now.
             final boolean isVibratorEnabled =
                     isVibratorEnabled(mContext, attributes.shouldRingForContact());
             boolean shouldApplyRampingRinger =
                     isVibratorEnabled && mSystemSettingsUtil.isRampingRingerEnabled(mContext);
+            boolean dndMode = !isRingerAudible;
+
+            torchMode = Settings.System.getIntForUser(mContext.getContentResolver(),
+                     Settings.System.FLASHLIGHT_ON_CALL, 0, UserHandle.USER_CURRENT);
+
+            boolean shouldFlashOnRing = (torchMode == 1 && !dndMode) ||
+                                        (torchMode == 2 && dndMode)  ||
+                                         torchMode == 3;
+            if (shouldFlashOnRing) {
+                blinkFlashlight();
+            }
+
+            final boolean shouldFlash = attributes.shouldRingForContact() && !shouldFlashOnRing;
+            if (mAccessibilityManagerAdapter != null && shouldFlash) {
+                Log.addEvent(foregroundCall, LogUtils.Events.FLASH_NOTIFICATION_START);
+                getHandler().post(() ->
+                        mAccessibilityManagerAdapter.startFlashNotificationSequence(mContext,
+                                AccessibilityManager.FLASH_REASON_CALL));
+            }
 
             boolean isHapticOnly = false;
             boolean useCustomVibrationEffect = false;
@@ -498,6 +516,11 @@ public class Ringer {
         }
    }
 
+    private void blinkFlashlight() {
+        torchToggler = new TorchToggler(mContext);
+        torchToggler.execute();
+    }
+
     private void vibrateIfNeeded(boolean isUsingAudioCoupledHaptics, Call foregroundCall,
             VibrationEffect effect) {
         if (isUsingAudioCoupledHaptics) {
@@ -596,6 +619,7 @@ public class Ringer {
             }
 
             mRingtonePlayer.stop();
+            torchToggler.stop();
 
             if (mIsVibrating) {
                 Log.addEvent(mVibratingCall, LogUtils.Events.STOP_VIBRATOR);
@@ -753,6 +777,48 @@ public class Ringer {
             mHandler = handlerThread.getThreadHandler();
         }
         return mHandler;
+    }
+
+    private class TorchToggler extends AsyncTask {
+
+        private boolean shouldStop = false;
+        private CameraManager cameraManager;
+        private int duration = 500;
+        private boolean hasFlash = true;
+        private Context context;
+
+        public TorchToggler(Context ctx) {
+            this.context = ctx;
+            init();
+        }
+
+        private void init() {
+            cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+            hasFlash = context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH);
+        }
+
+        void stop() {
+            shouldStop = true;
+        }
+
+        @Override
+        protected Object doInBackground(Object[] objects) {
+            if (hasFlash) {
+                try {
+                    String cameraId = cameraManager.getCameraIdList()[0];
+                    while (!shouldStop) {
+                        cameraManager.setTorchMode(cameraId, true);
+                        Thread.sleep(duration);
+
+                        cameraManager.setTorchMode(cameraId, false);
+                        Thread.sleep(duration);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+            return null;
+        }
     }
 
     public void vibrate(int v1, int p1, int v2) {
