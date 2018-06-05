@@ -35,6 +35,7 @@
     <uses-permission android:name="android.permission.BROADCAST_CALLLOG_INFO"/>
     <uses-permission android:name="android.permission.BROADCAST_PHONE_ACCOUNT_REGISTRATION"/>
     <uses-permission android:name="android.permission.CALL_PRIVILEGED"/>
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.HANDLE_CALL_INTENT"/>
     <uses-permission android:name="android.permission.HANDLE_CAR_MODE_CHANGES"/>
     <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS"/>
@@ -83,6 +84,8 @@
     <permission android:name="android.permission.HANDLE_CALL_INTENT"
          android:label="Protects handling the call intent via the TelecomManager API."
          android:protectionLevel="signature|system"/>
+
+    <uses-feature android:name="android.hardware.camera" />
 
     <application android:label="@string/telecommAppLabel"
          android:icon="@mipmap/ic_launcher_phone"
