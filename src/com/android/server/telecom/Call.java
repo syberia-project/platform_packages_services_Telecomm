@@ -246,7 +246,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     /**
      * The post-dial digits that were dialed after the network portion of the number
      */
-    private final String mPostDialDigits;
+    private String mPostDialDigits;
 
     /**
      * The secondary line number that an incoming call has been received on if the SIM subscription
@@ -975,6 +975,10 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         return mHandle;
     }
 
+    public void setPostDialDigits(String postDialDigits) {
+        mPostDialDigits = postDialDigits;
+    }
+
     public String getPostDialDigits() {
         return mPostDialDigits;
     }
@@ -1398,6 +1402,10 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         return mConnectTimeMillis;
     }
 
+    public void setConnectTimeMillis(long connectTimeMillis) {
+        mConnectTimeMillis = connectTimeMillis;
+    }
+
     int getConnectionCapabilities() {
         return mConnectionCapabilities;
     }
@@ -1453,7 +1461,9 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         if (changedProperties != 0) {
             int previousProperties = mConnectionProperties;
             mConnectionProperties = connectionProperties;
-            if ((mConnectionProperties & Connection.PROPERTY_IS_RTT) ==
+            boolean didRttChange =
+                    (changedProperties & Connection.PROPERTY_IS_RTT) == Connection.PROPERTY_IS_RTT;
+            if (didRttChange && (mConnectionProperties & Connection.PROPERTY_IS_RTT) ==
                     Connection.PROPERTY_IS_RTT) {
                 createRttStreams();
                 // Call startRtt to pass the RTT pipes down to the connection service.
@@ -1468,8 +1478,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             }
             mWasHighDefAudio = (connectionProperties & Connection.PROPERTY_HIGH_DEF_AUDIO) ==
                     Connection.PROPERTY_HIGH_DEF_AUDIO;
-            boolean didRttChange =
-                    (changedProperties & Connection.PROPERTY_IS_RTT) == Connection.PROPERTY_IS_RTT;
             for (Listener l : mListeners) {
                 l.onConnectionPropertiesChanged(this, didRttChange);
             }
@@ -2134,6 +2142,14 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         } else {
             Log.addEvent(this, LogUtils.Events.SPLIT_FROM_CONFERENCE);
             mConnectionService.splitFromConference(this);
+        }
+    }
+
+    void addParticipantWithConference(String recipients) {
+        if (mConnectionService == null) {
+            Log.w(this, "conference requested on a call without a connection service.");
+        } else {
+            mConnectionService.addParticipantWithConference(this, recipients);
         }
     }
 

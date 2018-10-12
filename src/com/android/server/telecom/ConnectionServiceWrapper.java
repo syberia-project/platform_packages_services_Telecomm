@@ -145,6 +145,26 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         }
 
         @Override
+        public void resetCdmaConnectionTime(String callId, Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, "CSW.rCCT");
+            long token = Binder.clearCallingIdentity();
+            try {
+                synchronized (mLock) {
+                    logIncoming("resetCdmaConnectionTime %s", callId);
+                    Call call = mCallIdMapper.getCall(callId);
+                    if (call != null) {
+                        mCallsManager.resetCdmaConnectionTime(call);
+                    } else {
+                        // Log.w(this, "resetCdmaConnectionTime, unknown call id: %s", msg.obj);
+                    }
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
+                Log.endSession();
+            }
+        }
+
+        @Override
         public void setVideoProvider(String callId, IVideoProvider videoProvider,
                 Session.Info sessionInfo) {
             Log.startSession(sessionInfo, "CSW.sVP");
@@ -1449,6 +1469,17 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                 mServiceInterface.splitFromConference(callId, Log.getExternalSession());
             } catch (RemoteException ignored) {
             }
+        }
+    }
+
+    void addParticipantWithConference(Call call, String recipients) {
+        final String callId = mCallIdMapper.getCallId(call);
+            if (isServiceValid("addParticipantWithConference")) {
+                try {
+                    logOutgoing("addParticipantWithConference %s, %s", recipients, callId);
+                    mServiceInterface.addParticipantWithConference(callId, recipients);
+                } catch (RemoteException ignored) {
+                }
         }
     }
 
