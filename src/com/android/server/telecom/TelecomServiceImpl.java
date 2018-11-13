@@ -47,7 +47,6 @@ import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
-import android.text.TextUtils;
 import android.util.EventLog;
 
 import com.android.internal.telecom.ITelecomService;
@@ -1442,6 +1441,56 @@ public class TelecomServiceImpl {
                     try {
                         Log.i(this, "waitOnHandlers");
                         mCallsManager.waitOnHandlers();
+                    } finally {
+                        Binder.restoreCallingIdentity(token);
+                    }
+                }
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        /**
+         * See {@link TelecomManager#isInEmergencyCall()}
+         */
+        @Override
+        public boolean isInEmergencyCall() {
+            try {
+                Log.startSession("TSI.iIEC");
+                enforceModifyPermission();
+                synchronized (mLock) {
+                    long token = Binder.clearCallingIdentity();
+                    try {
+                        boolean isInEmergencyCall = mCallsManager.isInEmergencyCall();
+                        Log.i(this, "isInEmergencyCall: %b", isInEmergencyCall);
+                        return isInEmergencyCall;
+                    } finally {
+                        Binder.restoreCallingIdentity(token);
+                    }
+                }
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        /**
+         * See {@link TelecomManager#handleCallIntent(Intent)} ()}
+         */
+        @Override
+        public void handleCallIntent(Intent intent) {
+            try {
+                Log.startSession("TSI.hCI");
+                synchronized (mLock) {
+                    int callingUid = Binder.getCallingUid();
+
+                    long token = Binder.clearCallingIdentity();
+                    if (callingUid != Process.myUid()) {
+                        throw new SecurityException("handleCallIntent is for Telecom only");
+                    }
+                    try {
+                        Log.i(this, "handleCallIntent: handling call intent");
+                        mCallIntentProcessorAdapter.processOutgoingCallIntent(mContext,
+                                mCallsManager, intent);
                     } finally {
                         Binder.restoreCallingIdentity(token);
                     }

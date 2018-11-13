@@ -137,6 +137,14 @@ public class LogUtils {
         public static final String HANDOVER_FAILED = "HANDOVER_FAILED";
         public static final String START_RINBACK = "START_RINGBACK";
         public static final String STOP_RINGBACK = "STOP_RINGBACK";
+        public static final String REDIRECTION_BOUND_USER = "REDIRECTION_BOUND_USER";
+        public static final String REDIRECTION_BOUND_CARRIER = "REDIRECTION_BOUND_CARRIER";
+        public static final String REDIRECTION_SENT_USER = "REDIRECTION_SENT_USER";
+        public static final String REDIRECTION_SENT_CARRIER = "REDIRECTION_SENT_CARRIER";
+        public static final String REDIRECTION_COMPLETED_USER = "REDIRECTION_COMPLETED_USER";
+        public static final String REDIRECTION_COMPLETED_CARRIER = "REDIRECTION_COMPLETED_CARRIER";
+        public static final String REDIRECTION_TIMED_OUT_USER = "REDIRECTION_TIMED_OUT_USER";
+        public static final String REDIRECTION_TIMED_OUT_CARRIER = "REDIRECTION_TIMED_OUT_CARRIER";
 
         public static class Timings {
             public static final String ACCEPT_TIMING = "accept";
@@ -151,6 +159,8 @@ public class LogUtils {
             public static final String BLOCK_CHECK_FINISHED_TIMING = "block_check_finished";
             public static final String FILTERING_COMPLETED_TIMING = "filtering_completed";
             public static final String FILTERING_TIMED_OUT_TIMING = "filtering_timed_out";
+            public static final String START_CONNECTION_TO_REQUEST_DISCONNECT_TIMING =
+                    "start_connection_to_request_disconnect";
 
             private static final TimedEventPair[] sTimedEvents = {
                     new TimedEventPair(REQUEST_ACCEPT, SET_ACTIVE, ACCEPT_TIMING),
@@ -171,6 +181,8 @@ public class LogUtils {
                             FILTERING_COMPLETED_TIMING),
                     new TimedEventPair(FILTERING_INITIATED, FILTERING_TIMED_OUT,
                             FILTERING_TIMED_OUT_TIMING, 6000L),
+                    new TimedEventPair(START_CONNECTION, REQUEST_DISCONNECT,
+                            START_CONNECTION_TO_REQUEST_DISCONNECT_TIMING),
             };
         }
     }

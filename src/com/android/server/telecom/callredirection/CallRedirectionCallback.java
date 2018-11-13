@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,15 +14,10 @@
  * limitations under the License
  */
 
-package com.android.server.telecom;
+package com.android.server.telecom.callredirection;
 
-import android.content.Context;
+import com.android.server.telecom.Call;
 
-/**
- * Abstracts out creation of InCallController for unit test purposes.
- */
-public interface InCallControllerFactory {
-    InCallController create(Context context, TelecomSystem.SyncRoot lock, CallsManager callsManager,
-            SystemStateHelper systemStateHelper, DefaultDialerCache defaultDialerCache,
-            Timeouts.Adapter timeoutsAdapter, EmergencyCallHelper emergencyCallHelper);
+public interface CallRedirectionCallback {
+    void onCallRedirectionComplete(Call call);
 }

@@ -56,6 +56,7 @@ import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
@@ -98,6 +99,8 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import org.codeaurora.ims.QtiCallConstants;
+import org.codeaurora.ims.utils.QtiCarrierConfigHelper;
+import org.codeaurora.ims.utils.QtiImsExtUtils;
 /**
  * Singleton.
  *
@@ -369,7 +372,7 @@ public class CallsManager extends Call.ListenerBase
             CallAudioManager.AudioServiceFactory audioServiceFactory,
             BluetoothRouteManager bluetoothManager,
             WiredHeadsetManager wiredHeadsetManager,
-            SystemStateProvider systemStateProvider,
+            SystemStateHelper systemStateHelper,
             DefaultDialerCache defaultDialerCache,
             Timeouts.Adapter timeoutsAdapter,
             AsyncRingtonePlayer asyncRingtonePlayer,
@@ -431,15 +434,15 @@ public class CallsManager extends Call.ListenerBase
         RingtoneFactory ringtoneFactory = new RingtoneFactory(this, context);
         SystemVibrator systemVibrator = new SystemVibrator(context);
         mInCallController = inCallControllerFactory.create(context, mLock, this,
-                systemStateProvider, defaultDialerCache, mTimeoutsAdapter,
+                systemStateHelper, defaultDialerCache, mTimeoutsAdapter,
                 emergencyCallHelper);
         mRinger = new Ringer(playerFactory, context, systemSettingsUtil, asyncRingtonePlayer,
                 ringtoneFactory, systemVibrator,
                 new Ringer.VibrationEffectProxy(), mInCallController);
         mCallRecordingTonePlayer = new CallRecordingTonePlayer(mContext, audioManager, mLock);
         mCallAudioManager = new CallAudioManager(callAudioRouteStateMachine,
-                this, callAudioModeStateMachineFactory.create((AudioManager)
-                        mContext.getSystemService(Context.AUDIO_SERVICE)),
+                this, callAudioModeStateMachineFactory.create(systemStateHelper,
+                (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE)),
                 playerFactory, mRinger, new RingbackPlayer(playerFactory),
                 bluetoothStateReceiver, mDtmfLocalTonePlayer);
 
@@ -476,6 +479,7 @@ public class CallsManager extends Call.ListenerBase
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         intentFilter.addAction(SystemContract.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED);
         context.registerReceiver(mReceiver, intentFilter);
+        QtiCarrierConfigHelper.getInstance().setup(mContext);
     }
 
     public void setIncomingCallNotifier(IncomingCallNotifier incomingCallNotifier) {
@@ -585,9 +589,14 @@ public class CallsManager extends Call.ListenerBase
                     rejectCallAndLog(incomingCall);
                 }
             } else if (hasMaximumManagedDialingCalls(incomingCall)) {
-                Log.i(this, "onCallFilteringCompleted: Call rejected! Exceeds maximum number of " +
-                        "dialing calls.");
-                rejectCallAndLog(incomingCall);
+                if (shouldSilenceInsteadOfReject(incomingCall)) {
+                    incomingCall.silence();
+                } else {
+
+                    Log.i(this, "onCallFilteringCompleted: Call rejected! Exceeds maximum number of " +
+                            "dialing calls.");
+                    rejectCallAndLog(incomingCall);
+                }
             } else if (!isIncomingVideoCallAllowed(incomingCall)) {
                 Log.i(this, "onCallFilteringCompleted: MT Video Call rejecting.");
                 rejectCallAndLog(incomingCall);
@@ -640,16 +649,16 @@ public class CallsManager extends Call.ListenerBase
     }
 
     /**
-     * Whether allow (silence rather than reject) the incoming call if it has a different source
-     * (connection service) from the existing ringing call when reaching maximum ringing calls.
+     * In the event that the maximum supported calls of a given type is reached, the
+     * default behavior is to reject any additional calls of that type.  This checks
+     * if the device is configured to silence instead of reject the call, provided
+     * that the incoming call is from a different source (connection service).
      */
     private boolean shouldSilenceInsteadOfReject(Call incomingCall) {
         if (!mContext.getResources().getBoolean(
                 R.bool.silence_incoming_when_different_service_and_maximum_ringing)) {
             return false;
         }
-
-        Call ringingCall = null;
 
         for (Call call : mCalls) {
             // Only operate on top-level calls
@@ -661,8 +670,7 @@ public class CallsManager extends Call.ListenerBase
                 continue;
             }
 
-            if (CallState.RINGING == call.getState() &&
-                    call.getConnectionService() == incomingCall.getConnectionService()) {
+            if (call.getConnectionService() == incomingCall.getConnectionService()) {
                 return false;
             }
         }
@@ -1356,6 +1364,7 @@ public class CallsManager extends Call.ListenerBase
             }
         }
         setIntentExtrasAndStartTime(call, extras);
+        setCallSourceToAnalytics(call, originalIntent);
 
         if ((isPotentialMMICode(handle) || isPotentialInCallMMICode) && !needsAccountSelection) {
             // Do not add the call if it is a potential MMI code.
@@ -1621,7 +1630,8 @@ public class CallsManager extends Call.ListenerBase
      * @return {@code true} if the speakerphone should be enabled.
      */
     public boolean isSpeakerphoneAutoEnabledForVideoCalls(int videoState) {
-        return VideoProfile.isVideo(videoState) &&
+        return !isVideoCrbtVoLteCall(videoState) &&
+            VideoProfile.isVideo(videoState) &&
             !mWiredHeadsetManager.isPluggedIn() &&
             !mBluetoothRouteManager.isBluetoothAvailable() &&
             isSpeakerEnabledForVideoCalls();
@@ -2366,6 +2376,7 @@ public class CallsManager extends Call.ListenerBase
     public Call getHeldCallByConnectionService(ConnectionServiceWrapper connSvr) {
         Optional<Call> heldCall = mCalls.stream()
                 .filter(call -> call.getConnectionService() == connSvr
+                        && call.getParentCall() == null
                         && call.getState() == CallState.ON_HOLD)
                 .findFirst();
         return heldCall.isPresent() ? heldCall.get() : null;
@@ -3317,6 +3328,20 @@ public class CallsManager extends Call.ListenerBase
                 new MissedCallNotifier.CallInfoFactory());
     }
 
+    public boolean isVideoCrbtVoLteCall(int videoState) {
+        Call call = getDialingCall();
+        if (call == null) {
+            return false;
+        }
+        PhoneAccountHandle accountHandle = call.getTargetPhoneAccount();
+        int phoneId = SubscriptionManager.getPhoneId(
+                mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(accountHandle));
+        return QtiImsExtUtils.isCarrierConfigEnabled(phoneId, mContext,
+                "config_enable_video_crbt") && getDialingCall() != null
+            && !VideoProfile.isTransmissionEnabled(videoState)
+            && VideoProfile.isReceptionEnabled(videoState);
+    }
+
     public boolean isIncomingCallPermitted(PhoneAccountHandle phoneAccountHandle) {
         return isIncomingCallPermitted(null /* excludeCall */, phoneAccountHandle);
     }
@@ -3598,6 +3623,18 @@ public class CallsManager extends Call.ListenerBase
         call.setIntentExtras(extras);
     }
 
+    private void setCallSourceToAnalytics(Call call, Intent originalIntent) {
+        if (originalIntent == null) {
+            return;
+        }
+
+        int callSource = originalIntent.getIntExtra(TelecomManager.EXTRA_CALL_SOURCE,
+                Analytics.CALL_SOURCE_UNSPECIFIED);
+
+        // Call source is only used by metrics, so we simply set it to Analytics directly.
+        call.getAnalytics().setCallSource(callSource);
+    }
+
     /**
      * Notifies the {@link android.telecom.ConnectionService} associated with a
      * {@link PhoneAccountHandle} that the attempt to create a new connection has failed.
@@ -3675,6 +3712,10 @@ public class CallsManager extends Call.ListenerBase
                 mCallAudioManager.getCallAudioState());
         Call handoverToCall = startOutgoingCall(handoverFromCall.getHandle(), handoverToHandle,
                 extras, getCurrentUserHandle(), null /* originalIntent */);
+        if (handoverToCall == null) {
+            handoverFromCall.sendCallEvent(android.telecom.Call.EVENT_HANDOVER_FAILED, null);
+            return;
+        }
         Log.addEvent(handoverFromCall, LogUtils.Events.START_HANDOVER,
                 "handOverFrom=%s, handOverTo=%s", handoverFromCall.getId(), handoverToCall.getId());
         handoverFromCall.setHandoverDestinationCall(handoverToCall);
@@ -4099,5 +4140,15 @@ public class CallsManager extends Call.ListenerBase
                 listener.onConnectionTimeChanged(call);
             }
         }
+    }
+
+    /**
+     * Determines if there is an ongoing emergency call. This can be either an outgoing emergency
+     * call, or a number which has been identified by the number as an emergency call.
+     * @return {@code true} if there is an ongoing emergency call, {@code false} otherwise.
+     */
+    public boolean isInEmergencyCall() {
+        return mCalls.stream().filter(c -> c.isEmergencyCall()
+                || c.isNetworkIdentifiedEmergencyCall()).count() > 0;
     }
 }

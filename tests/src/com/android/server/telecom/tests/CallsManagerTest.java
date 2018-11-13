@@ -17,6 +17,7 @@
 package com.android.server.telecom.tests;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -37,6 +38,7 @@ import android.os.SystemClock;
 import android.telecom.Connection;
 import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
+import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.telephony.TelephonyManager;
 import android.test.suitebuilder.annotation.MediumTest;
@@ -68,7 +70,7 @@ import com.android.server.telecom.PhoneAccountRegistrar;
 import com.android.server.telecom.PhoneNumberUtilsAdapter;
 import com.android.server.telecom.ProximitySensorManager;
 import com.android.server.telecom.ProximitySensorManagerFactory;
-import com.android.server.telecom.SystemStateProvider;
+import com.android.server.telecom.SystemStateHelper;
 import com.android.server.telecom.TelecomSystem;
 import com.android.server.telecom.Timeouts;
 import com.android.server.telecom.WiredHeadsetManager;
@@ -131,7 +133,7 @@ public class CallsManagerTest extends TelecomTestCase {
     @Mock private CallAudioManager.AudioServiceFactory mAudioServiceFactory;
     @Mock private BluetoothRouteManager mBluetoothRouteManager;
     @Mock private WiredHeadsetManager mWiredHeadsetManager;
-    @Mock private SystemStateProvider mSystemStateProvider;
+    @Mock private SystemStateHelper mSystemStateHelper;
     @Mock private DefaultDialerCache mDefaultDialerCache;
     @Mock private Timeouts.Adapter mTimeoutsAdapter;
     @Mock private AsyncRingtonePlayer mAsyncRingtonePlayer;
@@ -165,7 +167,7 @@ public class CallsManagerTest extends TelecomTestCase {
                 any())).thenReturn(mInCallController);
         when(mCallAudioRouteStateMachineFactory.create(any(), any(), any(), any(), any(), any(),
                 anyInt())).thenReturn(mCallAudioRouteStateMachine);
-        when(mCallAudioModeStateMachineFactory.create(any()))
+        when(mCallAudioModeStateMachineFactory.create(any(), any()))
                 .thenReturn(mCallAudioModeStateMachine);
         when(mClockProxy.currentTimeMillis()).thenReturn(System.currentTimeMillis());
         when(mClockProxy.elapsedRealtime()).thenReturn(SystemClock.elapsedRealtime());
@@ -184,7 +186,7 @@ public class CallsManagerTest extends TelecomTestCase {
                 mAudioServiceFactory,
                 mBluetoothRouteManager,
                 mWiredHeadsetManager,
-                mSystemStateProvider,
+                mSystemStateHelper,
                 mDefaultDialerCache,
                 mTimeoutsAdapter,
                 mAsyncRingtonePlayer,
@@ -730,36 +732,7 @@ public class CallsManagerTest extends TelecomTestCase {
         doReturn(false).when(incomingCall).can(Connection.CAPABILITY_HOLD);
         doReturn(false).when(incomingCall).can(Connection.CAPABILITY_SUPPORT_HOLD);
         doReturn(true).when(incomingCall).isSelfManaged();
-        doNothing().when(incomingCall).setState(anyInt(), any());
-
-        // WHEN the incoming call is successfully added.
-        mCallsManager.onSuccessfulIncomingCall(incomingCall);
-
-        // THEN the incoming call is not using call filtering
-        verify(incomingCall).setIsUsingCallFiltering(eq(false));
-    }
-
-    @SmallTest
-    @Test
-    public void testNoFilteringOfCallsWhenPhoneAccountRequestsSkipped() {
-        ConnectionServiceWrapper connSvr1 = Mockito.mock(ConnectionServiceWrapper.class);
-
-        // GIVEN an incoming call which is from a PhoneAccount that requested to skip filtering.
-        Call incomingCall = addSpyCallWithConnectionService(connSvr1);
-        Bundle extras = new Bundle();
-        extras.putBoolean(PhoneAccount.EXTRA_SKIP_CALL_FILTERING, true);
-        PhoneAccount skipRequestedAccount = new PhoneAccount.Builder(SIM_2_HANDLE, "Skipper")
-            .setCapabilities(PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION
-                | PhoneAccount.CAPABILITY_CALL_PROVIDER)
-            .setExtras(extras)
-            .setIsEnabled(true)
-            .build();
-        when(mPhoneAccountRegistrar.getPhoneAccountUnchecked(SIM_2_HANDLE))
-            .thenReturn(skipRequestedAccount);
-        doReturn(false).when(incomingCall).can(Connection.CAPABILITY_HOLD);
-        doReturn(false).when(incomingCall).can(Connection.CAPABILITY_SUPPORT_HOLD);
-        doReturn(false).when(incomingCall).isSelfManaged();
-        doNothing().when(incomingCall).setState(anyInt(), any());
+        doReturn(true).when(incomingCall).setState(anyInt(), any());
 
         // WHEN the incoming call is successfully added.
         mCallsManager.onSuccessfulIncomingCall(incomingCall);
@@ -866,6 +839,61 @@ public class CallsManagerTest extends TelecomTestCase {
 
         // THEN the ongoing call is disconnected
         verify(ongoingCall).disconnect();
+    }
+
+    @SmallTest
+    @Test
+    public void testNoFilteringOfCallsWhenPhoneAccountRequestsSkipped() {
+        ConnectionServiceWrapper connSvr1 = Mockito.mock(ConnectionServiceWrapper.class);
+
+        // GIVEN an incoming call which is from a PhoneAccount that requested to skip filtering.
+        Call incomingCall = addSpyCallWithConnectionService(connSvr1);
+        Bundle extras = new Bundle();
+        extras.putBoolean(PhoneAccount.EXTRA_SKIP_CALL_FILTERING, true);
+        PhoneAccount skipRequestedAccount = new PhoneAccount.Builder(SIM_2_HANDLE, "Skipper")
+            .setCapabilities(PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION
+                | PhoneAccount.CAPABILITY_CALL_PROVIDER)
+            .setExtras(extras)
+            .setIsEnabled(true)
+            .build();
+        when(mPhoneAccountRegistrar.getPhoneAccountUnchecked(SIM_2_HANDLE))
+            .thenReturn(skipRequestedAccount);
+        doReturn(false).when(incomingCall).can(Connection.CAPABILITY_HOLD);
+        doReturn(false).when(incomingCall).can(Connection.CAPABILITY_SUPPORT_HOLD);
+        doReturn(false).when(incomingCall).isSelfManaged();
+        doReturn(true).when(incomingCall).setState(anyInt(), any());
+
+        // WHEN the incoming call is successfully added.
+        mCallsManager.onSuccessfulIncomingCall(incomingCall);
+
+        // THEN the incoming call is not using call filtering
+        verify(incomingCall).setIsUsingCallFiltering(eq(false));
+    }
+
+    @SmallTest
+    @Test
+    public void testIsInEmergencyCallNetwork() {
+        // Setup a call which the network identified as an emergency call.
+        Call ongoingCall = addSpyCall();
+        ongoingCall.setConnectionProperties(Connection.PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL);
+
+        assertFalse(ongoingCall.isEmergencyCall());
+        assertTrue(ongoingCall.isNetworkIdentifiedEmergencyCall());
+        assertTrue(mCallsManager.isInEmergencyCall());
+    }
+
+    @SmallTest
+    @Test
+    public void testIsInEmergencyCallLocal() {
+        // Setup a call which is considered emergency based on its phone number.
+        Call ongoingCall = addSpyCall();
+        when(mPhoneNumberUtilsAdapter.isLocalEmergencyNumber(any(), any())).thenReturn(true);
+        ongoingCall.setHandle(Uri.fromParts("tel", "5551212", null),
+                TelecomManager.PRESENTATION_ALLOWED);
+
+        assertTrue(ongoingCall.isEmergencyCall());
+        assertFalse(ongoingCall.isNetworkIdentifiedEmergencyCall());
+        assertTrue(mCallsManager.isInEmergencyCall());
     }
 
     private Call addSpyCallWithConnectionService(ConnectionServiceWrapper connSvr) {
