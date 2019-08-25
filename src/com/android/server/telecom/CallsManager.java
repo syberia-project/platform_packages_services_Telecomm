@@ -35,6 +35,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.SystemClock;
 import android.os.SystemProperties;
@@ -412,6 +413,7 @@ public class CallsManager extends Call.ListenerBase
             Context context = args[0].first;
             BlockedNumbersUtil.updateEmergencyCallNotification(context,
                     SystemContract.shouldShowEmergencyCallNotification(context));
+            Log.endSession();
             return null;
         }
     }
@@ -1141,9 +1143,11 @@ public class CallsManager extends Call.ListenerBase
                 call.setIsVoipAudioMode(true);
             }
         }
-        if (isRttSettingOn() ||
+
+        boolean isRttSettingOn = isRttSettingOn(phoneAccountHandle);
+        if (isRttSettingOn ||
                 extras.getBoolean(TelecomManager.EXTRA_START_CALL_WITH_RTT, false)) {
-            Log.i(this, "Incoming call requesting RTT, rtt setting is %b", isRttSettingOn());
+            Log.i(this, "Incoming call requesting RTT, rtt setting is %b", isRttSettingOn);
             call.createRttStreams();
             // Even if the phone account doesn't support RTT yet, the connection manager might
             // change that. Set this to check it later.
@@ -1603,14 +1607,15 @@ public class CallsManager extends Call.ListenerBase
                     int phoneId = SubscriptionManager.getPhoneId(
                             mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(
                             callToUse.getTargetPhoneAccount()));
+                    boolean isRttSettingOn = isRttSettingOn(phoneAccountHandle);
                     if (!isVoicemail && (!VideoProfile.isVideo(callToUse.getVideoState())
                             || QtiImsExtUtils.isRttSupportedOnVtCalls(
                             phoneId, mContext))
-                            && (isRttSettingOn() || (extras != null
+                            && (isRttSettingOn || (extras != null
                             && extras.getBoolean(TelecomManager.EXTRA_START_CALL_WITH_RTT,
                             false)))) {
                         Log.d(this, "Outgoing call requesting RTT, rtt setting is %b",
-                                isRttSettingOn());
+                                isRttSettingOn);
                         if (callToUse.isEmergencyCall() || (accountToUse != null
                                 && accountToUse.hasCapabilities(PhoneAccount.CAPABILITY_RTT))) {
                             // If the call requested RTT and it's an emergency call, ignore the
@@ -1699,9 +1704,9 @@ public class CallsManager extends Call.ListenerBase
     @VisibleForTesting
     public CompletableFuture<List<PhoneAccountHandle>> findOutgoingCallPhoneAccount(
             PhoneAccountHandle targetPhoneAccountHandle, Uri handle, boolean isVideo,
-            UserHandle initiatingUser) {
+            boolean isEmergency, UserHandle initiatingUser) {
         return findOutgoingCallPhoneAccount(targetPhoneAccountHandle, handle, isVideo,
-                initiatingUser, null, false);
+                initiatingUser, null, isEmergency);
     }
 
     public CompletableFuture<List<PhoneAccountHandle>> findOutgoingCallPhoneAccount(
@@ -1889,15 +1894,7 @@ public class CallsManager extends Call.ListenerBase
             confirmIntent.putExtra(CallRedirectionConfirmDialogActivity.EXTRA_REDIRECTION_APP_NAME,
                     mRoleManagerAdapter.getApplicationLabelForPackageName(callRedirectionApp));
             confirmIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-            // A small delay to start the activity after any Dialer's In Call UI starts
-            mHandler.postDelayed(new Runnable("CM.oCRC", mLock) {
-                @Override
-                public void loggedRun() {
-                    mContext.startActivityAsUser(confirmIntent, UserHandle.CURRENT);
-                }
-            }.prepare(), 500 /* Milliseconds delay */);
-
+            mContext.startActivityAsUser(confirmIntent, UserHandle.CURRENT);
         } else {
             call.setTargetPhoneAccount(phoneAccountHandle);
             placeOutgoingCall(call, handle, gatewayInfo, speakerphoneOn, videoState);
@@ -2312,8 +2309,8 @@ public class CallsManager extends Call.ListenerBase
     // then include only that SIM based PhoneAccount and any non-SIM PhoneAccounts, such as SIP.
     @VisibleForTesting
     public List<PhoneAccountHandle> constructPossiblePhoneAccounts(Uri handle, UserHandle user,
-            boolean isVideo) {
-        return constructPossiblePhoneAccounts(handle, user, isVideo, null, false);
+            boolean isVideo, boolean isEmergency) {
+        return constructPossiblePhoneAccounts(handle, user, isVideo, null, isEmergency);
     }
 
     public List<PhoneAccountHandle> constructPossiblePhoneAccounts(Uri handle, UserHandle user,
@@ -2327,10 +2324,12 @@ public class CallsManager extends Call.ListenerBase
         }
 
         // If we're specifically looking for video capable accounts, then include that capability,
-        // otherwise specify no additional capability constraints.
+        // otherwise specify no additional capability constraints. When handling the emergency call,
+        // it also needs to find the phone accounts excluded by CAPABILITY_EMERGENCY_CALLS_ONLY.
         List<PhoneAccountHandle> allAccounts =
-                mPhoneAccountRegistrar.getCallCapablePhoneAccounts(scheme, false, user,
-                        isVideo ? PhoneAccount.CAPABILITY_VIDEO_CALLING : 0 /* any */);
+                mPhoneAccountRegistrar.getCallCapablePhoneAccounts(handle.getScheme(), false, user,
+                        isVideo ? PhoneAccount.CAPABILITY_VIDEO_CALLING : 0 /* any */,
+                        isEmergency ? 0 : PhoneAccount.CAPABILITY_EMERGENCY_CALLS_ONLY);
 
         // If no phone account is found, let's query emergency call only account again.
         // That is happening while emergency account has capability CAPABILITY_EMERGENCY_CALLS_ONLY.
@@ -2441,9 +2440,22 @@ public class CallsManager extends Call.ListenerBase
         mProximitySensorManager.turnOff(screenOnImmediately);
     }
 
-    private boolean isRttSettingOn() {
-        return Settings.Secure.getInt(mContext.getContentResolver(),
+    private boolean isRttSettingOn(PhoneAccountHandle handle) {
+        boolean isRttModeSettingOn = Settings.Secure.getInt(mContext.getContentResolver(),
                 Settings.Secure.RTT_CALLING_MODE, 0) != 0;
+        // If the carrier config says that we should ignore the RTT mode setting from the user,
+        // assume that it's off (i.e. only make an RTT call if it's requested through the extra).
+        boolean shouldIgnoreRttModeSetting = getCarrierConfigForPhoneAccount(handle)
+                .getBoolean(CarrierConfigManager.KEY_IGNORE_RTT_MODE_SETTING_BOOL, false);
+        return isRttModeSettingOn && !shouldIgnoreRttModeSetting;
+    }
+
+    private PersistableBundle getCarrierConfigForPhoneAccount(PhoneAccountHandle handle) {
+        int subscriptionId = mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(handle);
+        CarrierConfigManager carrierConfigManager =
+                mContext.getSystemService(CarrierConfigManager.class);
+        PersistableBundle result = carrierConfigManager.getConfigForSubId(subscriptionId);
+        return result == null ? new PersistableBundle() : result;
     }
 
     void phoneAccountSelected(Call call, PhoneAccountHandle account, boolean setDefault) {
@@ -4668,19 +4680,21 @@ public class CallsManager extends Call.ListenerBase
 
         @Override
         public void performAction() {
-            Log.d(this, "perform answer call for %s, videoState = %d", mCall, mVideoState);
-            for (CallsManagerListener listener : mListeners) {
-                listener.onIncomingCallAnswered(mCall);
-            }
+            synchronized (mLock) {
+                Log.d(this, "perform answer call for %s, videoState = %d", mCall, mVideoState);
+                for (CallsManagerListener listener : mListeners) {
+                    listener.onIncomingCallAnswered(mCall);
+                }
 
-            // We do not update the UI until we get confirmation of the answer() through
-            // {@link #markCallAsActive}.
-            mCall.answer(mVideoState);
-            if (mCall.getState() == CallState.RINGING) {
-                setCallState(mCall, CallState.ANSWERED, "answered");
-            }
-            if (isSpeakerphoneAutoEnabledForVideoCalls(mVideoState)) {
-                mCall.setStartWithSpeakerphoneOn(true);
+                // We do not update the UI until we get confirmation of the answer() through
+                // {@link #markCallAsActive}.
+                mCall.answer(mVideoState);
+                if (mCall.getState() == CallState.RINGING) {
+                    setCallState(mCall, CallState.ANSWERED, "answered");
+                }
+                if (isSpeakerphoneAutoEnabledForVideoCalls(mVideoState)) {
+                    mCall.setStartWithSpeakerphoneOn(true);
+                }
             }
         }
     }
