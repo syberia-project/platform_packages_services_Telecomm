@@ -114,9 +114,9 @@ public class BluetoothPhoneServiceImpl {
                     Call call = mCallsManager.getFirstCallWithState(CallState.RINGING);
                     if (call != null) {
                         if (!isAnswercallInProgress) {
-                            mCallsManager.answerCall(call, VideoProfile.STATE_AUDIO_ONLY);
                             Log.i(TAG, "Making isAnswercallInProgress to true");
                             isAnswercallInProgress = true;
+                            mCallsManager.answerCall(call, VideoProfile.STATE_AUDIO_ONLY);
                         }
                         return true;
                     }
@@ -399,6 +399,7 @@ public class BluetoothPhoneServiceImpl {
                 return;
             }
 
+            Log.i(TAG, "onCallStateChanged oldState: " + oldState + " newState " + newState);
             if (oldState == CallState.RINGING && newState != oldState) {
                 Log.i(TAG, "making flag isAnswercallInProgress to false");
                 isAnswercallInProgress = false;
@@ -432,8 +433,8 @@ public class BluetoothPhoneServiceImpl {
             // state. We can assume that the active call will be automatically held which will
             // send another update at which point we will be in the right state.
             if (mCallsManager.getActiveCall() != null
-                    && oldState == CallState.CONNECTING &&
-                    (newState == CallState.DIALING || newState == CallState.PULLING)) {
+                    && oldState == CallState.CONNECTING
+                    && newState == CallState.PULLING) {
                 return;
             }
             updateHeadsetWithCallState(false /* force */);
@@ -615,19 +616,19 @@ public class BluetoothPhoneServiceImpl {
                 mCallsManager.disconnectCall(activeCall);
                 if (ringingCall != null) {
                     if (!isAnswercallInProgress) {
-                        mCallsManager.answerCall(ringingCall, VideoProfile.STATE_AUDIO_ONLY);
                         Log.i(TAG, "making isAnswercallInProgress to true");
                         isAnswercallInProgress = true;
+                        mCallsManager.answerCall(ringingCall, VideoProfile.STATE_AUDIO_ONLY);
                     }
                 }
                 return true;
             }
             if (ringingCall != null) {
                 if (!isAnswercallInProgress) {
-                    mCallsManager.answerCall(ringingCall, ringingCall.getVideoState());
                     Log.i(TAG, "CHLD=1: There is ringing call making "
                               + "isAnswercallInProgress to true:");
                     isAnswercallInProgress = true;
+                    mCallsManager.answerCall(ringingCall, ringingCall.getVideoState());
                 }
             } else if (heldCall != null) {
                 mCallsManager.unholdCall(heldCall);
@@ -642,10 +643,10 @@ public class BluetoothPhoneServiceImpl {
                 return true;
             } else if (ringingCall != null) {
                 if (!isAnswercallInProgress) {
-                    mCallsManager.answerCall(ringingCall, VideoProfile.STATE_AUDIO_ONLY);
                     Log.i(TAG, "ringing call is present, making isAnswercallInProgress "
                            + "to true");
                     isAnswercallInProgress = true;
+                    mCallsManager.answerCall(ringingCall, VideoProfile.STATE_AUDIO_ONLY);
                 }
                 return true;
             } else if (heldCall != null) {
