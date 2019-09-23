@@ -2652,13 +2652,23 @@ public class CallsManager extends Call.ListenerBase
     }
 
     private boolean isRttSettingOn(PhoneAccountHandle handle) {
+        int phoneId = SubscriptionManager.getPhoneId(
+                mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(handle));
+        if (!SubscriptionManager.isValidPhoneId(phoneId)) {
+            Log.w(this, "isRttSettingOn: Invalid phone id = " + phoneId);
+            return false;
+        }
         boolean isRttModeSettingOn = Settings.Secure.getInt(mContext.getContentResolver(),
-                Settings.Secure.RTT_CALLING_MODE, 0) != 0;
+                Settings.Secure.RTT_CALLING_MODE + convertRttPhoneId(phoneId), 0) != 0;
         // If the carrier config says that we should ignore the RTT mode setting from the user,
         // assume that it's off (i.e. only make an RTT call if it's requested through the extra).
         boolean shouldIgnoreRttModeSetting = getCarrierConfigForPhoneAccount(handle)
                 .getBoolean(CarrierConfigManager.KEY_IGNORE_RTT_MODE_SETTING_BOOL, false);
         return isRttModeSettingOn && !shouldIgnoreRttModeSetting;
+    }
+
+    private static String convertRttPhoneId(int phoneId) {
+        return phoneId != 0 ? Integer.toString(phoneId) : "";
     }
 
     private PersistableBundle getCarrierConfigForPhoneAccount(PhoneAccountHandle handle) {
