@@ -54,7 +54,7 @@ import android.widget.Toast;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telecom.IVideoProvider;
-import com.android.internal.telephony.CallerInfo;
+import android.telephony.CallerInfo;
 import com.android.internal.telephony.SmsApplication;
 import com.android.internal.util.Preconditions;
 
@@ -1107,11 +1107,11 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     }
 
     public String getName() {
-        return mCallerInfo == null ? null : mCallerInfo.name;
+        return mCallerInfo == null ? null : mCallerInfo.getName();
     }
 
     public String getPhoneNumber() {
-        return mCallerInfo == null ? null : mCallerInfo.phoneNumber;
+        return mCallerInfo == null ? null : mCallerInfo.getPhoneNumber();
     }
 
     public Bitmap getPhotoIcon() {
@@ -1561,7 +1561,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                         getInCallToCsRttPipeForCs(), getCsToInCallRttPipeForCs());
                 mWasEverRtt = true;
                 if (isEmergencyCall()) {
-                    mCallsManager.setAudioRoute(CallAudioState.ROUTE_SPEAKER, null);
                     mCallsManager.mute(false);
                 }
             }
@@ -2189,7 +2188,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         if (mCallerInfo == null || !mCallerInfo.contactExists) {
             return getHandle();
         }
-        return Contacts.getLookupUri(mCallerInfo.contactIdOrZero, mCallerInfo.lookupKey);
+        return Contacts.getLookupUri(mCallerInfo.getContactId(), mCallerInfo.lookupKey);
     }
 
     Uri getRingtone() {
@@ -2630,7 +2629,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         mCallerInfo = callerInfo;
         Log.i(this, "CallerInfo received for %s: %s", Log.piiHandle(mHandle), callerInfo);
 
-        if (mCallerInfo.contactDisplayPhotoUri == null ||
+        if (mCallerInfo.getContactDisplayPhotoUri() == null ||
                 mCallerInfo.cachedPhotoIcon != null || mCallerInfo.cachedPhoto != null) {
             for (Listener l : mListeners) {
                 l.onCallerInfoChanged(this);

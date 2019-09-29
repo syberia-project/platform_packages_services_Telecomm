@@ -70,7 +70,7 @@ import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.AsyncEmergencyContactNotifier;
-import com.android.internal.telephony.CallerInfo;
+import android.telephony.CallerInfo;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.util.IndentingPrintWriter;
@@ -317,6 +317,7 @@ public class CallsManager extends Call.ListenerBase
     private final MissedCallNotifier mMissedCallNotifier;
     private IncomingCallNotifier mIncomingCallNotifier;
     private final CallerInfoLookupHelper mCallerInfoLookupHelper;
+    private final IncomingCallFilter.Factory mIncomingCallFilterFactory;
     private final DefaultDialerCache mDefaultDialerCache;
     private final Timeouts.Adapter mTimeoutsAdapter;
     private final PhoneNumberUtilsAdapter mPhoneNumberUtilsAdapter;
@@ -448,7 +449,8 @@ public class CallsManager extends Call.ListenerBase
             CallAudioRouteStateMachine.Factory callAudioRouteStateMachineFactory,
             CallAudioModeStateMachine.Factory callAudioModeStateMachineFactory,
             InCallControllerFactory inCallControllerFactory,
-            RoleManagerAdapter roleManagerAdapter) {
+            RoleManagerAdapter roleManagerAdapter,
+            IncomingCallFilter.Factory incomingCallFilterFactory) {
         mContext = context;
         mLock = lock;
         mPhoneNumberUtilsAdapter = phoneNumberUtilsAdapter;
@@ -464,6 +466,7 @@ public class CallsManager extends Call.ListenerBase
         mTimeoutsAdapter = timeoutsAdapter;
         mEmergencyCallHelper = emergencyCallHelper;
         mCallerInfoLookupHelper = callerInfoLookupHelper;
+        mIncomingCallFilterFactory = incomingCallFilterFactory;
 
         mDtmfLocalTonePlayer =
                 new DtmfLocalTonePlayer(new DtmfLocalTonePlayer.ToneGeneratorProxy());
@@ -647,7 +650,7 @@ public class CallsManager extends Call.ListenerBase
                         return null;
                     }
                 }));
-        new IncomingCallFilter(mContext, this, incomingCall, mLock,
+        mIncomingCallFilterFactory.create(mContext, this, incomingCall, mLock,
                 mTimeoutsAdapter, filters).performFiltering();
     }
 
@@ -1072,7 +1075,8 @@ public class CallsManager extends Call.ListenerBase
         mListeners.add(listener);
     }
 
-    void removeListener(CallsManagerListener listener) {
+    @VisibleForTesting
+    public void removeListener(CallsManagerListener listener) {
         mListeners.remove(listener);
     }
 
@@ -2418,11 +2422,6 @@ public class CallsManager extends Call.ListenerBase
       * speaker phone.
       */
     void setAudioRoute(int route, String bluetoothAddress) {
-        if (hasEmergencyRttCall() && route != CallAudioState.ROUTE_SPEAKER) {
-            Log.i(this, "In an emergency RTT call. Forcing route to speaker.");
-            route = CallAudioState.ROUTE_SPEAKER;
-            bluetoothAddress = null;
-        }
         mCallAudioManager.setAudioRoute(route, bluetoothAddress);
     }
 
