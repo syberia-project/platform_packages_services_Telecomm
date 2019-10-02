@@ -1024,6 +1024,10 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         return mHandle;
     }
 
+    public void setPostDialDigits(String postDialDigits) {
+        mPostDialDigits = postDialDigits;
+    }
+
     public String getPostDialDigits() {
         return mPostDialDigits;
     }
@@ -1515,14 +1519,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         Log.v(this, "setConnectionCapabilities: %s", Connection.capabilitiesToString(
                 connectionCapabilities));
         if (forceUpdate || mConnectionCapabilities != connectionCapabilities) {
-            // If the phone account does not support video calling, and the connection capabilities
-            // passed in indicate that the call supports video, remove those video capabilities.
-            if (!isVideoCallingSupportedByPhoneAccount()
-                    && doesCallSupportVideo(connectionCapabilities)) {
-                Log.w(this, "setConnectionCapabilities: attempt to set connection as video " +
-                        "capable when not supported by the phone account.");
-                connectionCapabilities = removeVideoCapabilities(connectionCapabilities);
-            }
             int previousCapabilities = mConnectionCapabilities;
             mConnectionCapabilities = connectionCapabilities;
             for (Listener l : mListeners) {
@@ -2236,6 +2232,14 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         } else {
             Log.addEvent(this, LogUtils.Events.SPLIT_FROM_CONFERENCE);
             mConnectionService.splitFromConference(this);
+        }
+    }
+
+    void addParticipantWithConference(String recipients) {
+        if (mConnectionService == null) {
+            Log.w(this, "conference requested on a call without a connection service.");
+        } else {
+            mConnectionService.addParticipantWithConference(this, recipients);
         }
     }
 
