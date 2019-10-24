@@ -80,12 +80,14 @@ import com.android.server.telecom.callfiltering.AsyncBlockCheckFilter;
 import com.android.server.telecom.callfiltering.BlockCheckerAdapter;
 import com.android.server.telecom.callfiltering.CallFilterResultCallback;
 import com.android.server.telecom.callfiltering.CallFilteringResult;
+import com.android.server.telecom.callfiltering.CallFilteringResult.Builder;
 import com.android.server.telecom.callfiltering.CallScreeningServiceController;
 import com.android.server.telecom.callfiltering.DirectToVoicemailCallFilter;
 import com.android.server.telecom.callfiltering.IncomingCallFilter;
 import com.android.server.telecom.callredirection.CallRedirectionProcessor;
 import com.android.server.telecom.components.ErrorDialogActivity;
 import com.android.server.telecom.settings.BlockedNumbersUtil;
+import com.android.server.telecom.ui.AudioProcessingNotification;
 import com.android.server.telecom.ui.CallRedirectionConfirmDialogActivity;
 import com.android.server.telecom.ui.CallRedirectionTimeoutDialogActivity;
 import com.android.server.telecom.ui.ConfirmCallDialogActivity;
@@ -255,6 +257,13 @@ public class CallsManager extends Call.ListenerBase
      * Used by {@link #onCallRedirectionComplete}.
      */
     private Call mPendingRedirectedOutgoingCall;
+
+    /**
+     * Cached call that's been answered but will be added to mCalls pending confirmation of active
+     * status from the connection service.
+     */
+    private Call mPendingAudioProcessingCall;
+
     /**
      * Cached latest pending redirected call information which require user-intervention in order
      * to be placed. Used by {@link #onCallRedirectionComplete}.
@@ -445,6 +454,7 @@ public class CallsManager extends Call.ListenerBase
             EmergencyCallHelper emergencyCallHelper,
             InCallTonePlayer.ToneGeneratorFactory toneGeneratorFactory,
             ClockProxy clockProxy,
+            AudioProcessingNotification audioProcessingNotification,
             BluetoothStateReceiver bluetoothStateReceiver,
             CallAudioRouteStateMachine.Factory callAudioRouteStateMachineFactory,
             CallAudioModeStateMachine.Factory callAudioModeStateMachineFactory,
@@ -537,6 +547,7 @@ public class CallsManager extends Call.ListenerBase
         mListeners.add(missedCallNotifier);
         mListeners.add(mHeadsetMediaButton);
         mListeners.add(mProximitySensorManager);
+        mListeners.add(audioProcessingNotification);
 
         // There is no USER_SWITCHED broadcast for user 0, handle it here explicitly.
         final UserManager userManager = UserManager.get(mContext);
@@ -623,7 +634,12 @@ public class CallsManager extends Call.ListenerBase
                     incomingCall.hasProperty(Connection.PROPERTY_EMERGENCY_CALLBACK_MODE),
                     incomingCall.isSelfManaged(),
                     extras.getBoolean(PhoneAccount.EXTRA_SKIP_CALL_FILTERING));
-            onCallFilteringComplete(incomingCall, new CallFilteringResult(true, false, true, true));
+            onCallFilteringComplete(incomingCall, new Builder()
+                    .setShouldAllowCall(true)
+                    .setShouldReject(false)
+                    .setShouldAddToCallLog(true)
+                    .setShouldShowNotification(true)
+                    .build());
             incomingCall.setIsUsingCallFiltering(false);
             return;
         }
@@ -693,6 +709,10 @@ public class CallsManager extends Call.ListenerBase
                 Log.i(this, "onCallFilteringCompleted: setting the call to silent ringing state");
                 incomingCall.setSilentRingingRequested(true);
                 addCall(incomingCall);
+            } else if (result.shouldScreenViaAudio) {
+                Log.i(this, "onCallFilteringCompleted: starting background audio processing");
+                answerCallForAudioProcessing(incomingCall);
+                incomingCall.setAudioProcessingRequestingApp(result.mCallScreeningAppName);
             } else {
                 addCall(incomingCall);
             }
@@ -1009,6 +1029,10 @@ public class CallsManager extends Call.ListenerBase
 
     EmergencyCallHelper getEmergencyCallHelper() {
         return mEmergencyCallHelper;
+    }
+
+    public DefaultDialerCache getDefaultDialerCache() {
+        return mDefaultDialerCache;
     }
 
     @VisibleForTesting
@@ -1702,6 +1726,7 @@ public class CallsManager extends Call.ListenerBase
      * @param handle The handle of the outgoing call; used to determine the SIP scheme when matching
      *               phone accounts.
      * @param isVideo {@code true} if the call is a video call, {@code false} otherwise.
+     * @param isEmergency {@code true} if the call is an emergency call.
      * @param initiatingUser The {@link UserHandle} the call is placed on.
      * @return
      */
@@ -1840,7 +1865,7 @@ public class CallsManager extends Call.ListenerBase
             Log.w(this, "onCallRedirectionComplete: phoneAccountHandle is null");
             endEarly = true;
             disconnectReason = "Null phoneAccountHandle from Call Redirection Service";
-        } else if (mPhoneNumberUtilsAdapter.isPotentialLocalEmergencyNumber(mContext,
+        } else if (getTelephonyManager().isPotentialEmergencyNumber(
                 handle.getSchemeSpecificPart())) {
             Log.w(this, "onCallRedirectionComplete: emergency number %s is redirected from Call"
                     + " Redirection Service", handle.getSchemeSpecificPart());
@@ -2063,6 +2088,107 @@ public class CallsManager extends Call.ListenerBase
             mConnectionSvrFocusMgr.requestFocus(
                     call,
                     new RequestCallback(new ActionAnswerCall(call, videoState)));
+        }
+    }
+
+    private void answerCallForAudioProcessing(Call call) {
+        // We don't check whether the call has been added to the internal lists yet -- it's optional
+        // until the call is actually in the AUDIO_PROCESSING state.
+        Call activeCall = (Call) mConnectionSvrFocusMgr.getCurrentFocusCall();
+        if (activeCall != null && activeCall != call) {
+            Log.w(this, "answerCallForAudioProcessing: another active call already exists. "
+                    + "Ignoring request for audio processing and letting the incoming call "
+                    + "through.");
+            // The call should already be in the RINGING state, so all we have to do is add the
+            // call to the internal tracker.
+            addCall(call);
+            return;
+        }
+        Log.d(this, "answerCallForAudioProcessing: Incoming call = %s", call);
+        mConnectionSvrFocusMgr.requestFocus(
+                call,
+                new RequestCallback(() -> {
+                    synchronized (mLock) {
+                        Log.d(this, "answering call %s for audio processing with cs focus", call);
+                        call.answerForAudioProcessing();
+                        // Skip setting the call state to ANSWERED -- that's only for calls that
+                        // were answered by user intervention.
+                        mPendingAudioProcessingCall = call;
+                    }
+                }));
+
+    }
+
+    /**
+     * Instructs Telecom to bring a call into the AUDIO_PROCESSING state.
+     *
+     * Used by the background audio call screener (also the default dialer) to signal that
+     * they want to manually enter the AUDIO_PROCESSING state. The user will be aware that there is
+     * an ongoing call at this time.
+     *
+     * @param call The call to manipulate
+     */
+    public void enterBackgroundAudioProcessing(Call call, String requestingPackageName) {
+        if (!mCalls.contains(call)) {
+            Log.w(this, "Trying to exit audio processing on an untracked call");
+            return;
+        }
+
+        Call activeCall = getActiveCall();
+        if (activeCall != call) {
+            Log.w(this, "Ignoring enter audio processing because there's already a call active");
+            return;
+        }
+
+        CharSequence requestingAppName;
+
+        PackageManager pm = mContext.getPackageManager();
+        try {
+            ApplicationInfo info = pm.getApplicationInfo( requestingPackageName, 0);
+            requestingAppName = pm.getApplicationLabel(info);
+        } catch (PackageManager.NameNotFoundException nnfe) {
+            Log.w(this, "Could not determine package name.");
+            requestingAppName = requestingPackageName;
+        }
+
+        // We only want this to work on active or ringing calls
+        if (call.getState() == CallState.RINGING) {
+            // After the connection service sets up the call with the other end, it'll set the call
+            // state to AUDIO_PROCESSING
+            answerCallForAudioProcessing(call);
+            call.setAudioProcessingRequestingApp(requestingAppName);
+        } else if (call.getState() == CallState.ACTIVE) {
+            setCallState(call, CallState.AUDIO_PROCESSING,
+                    "audio processing set by dialer request");
+            call.setAudioProcessingRequestingApp(requestingAppName);
+        }
+    }
+
+    /**
+     * Instructs Telecom to bring a call out of the AUDIO_PROCESSING state.
+     *
+     * Used by the background audio call screener (also the default dialer) to signal that it's
+     * finished doing its thing and the user should be made aware of the call.
+     *
+     * @param call The call to manipulate
+     * @param shouldRing if true, puts the call into SIMULATED_RINGING. Otherwise, makes the call
+     *                   active.
+     */
+    public void exitBackgroundAudioProcessing(Call call, boolean shouldRing) {
+        if (!mCalls.contains(call)) {
+            Log.w(this, "Trying to exit audio processing on an untracked call");
+            return;
+        }
+
+        Call activeCall = getActiveCall();
+        if (activeCall != null) {
+            Log.w(this, "Ignoring exit audio processing because there's already a call active");
+        }
+
+        if (shouldRing) {
+            setCallState(call, CallState.SIMULATED_RINGING, "exitBackgroundAudioProcessing");
+        } else {
+            setCallState(call, CallState.ACTIVE, "exitBackgroundAudioProcessing");
         }
     }
 
@@ -2344,10 +2470,8 @@ public class CallsManager extends Call.ListenerBase
 
         // First check the Radio SIM Technology
         if(mRadioSimVariants == null) {
-            TelephonyManager tm = (TelephonyManager) mContext.getSystemService(
-                    Context.TELEPHONY_SERVICE);
             // Cache Sim Variants
-            mRadioSimVariants = tm.getMultiSimConfiguration();
+            mRadioSimVariants = getTelephonyManager().getMultiSimConfiguration();
         }
         // Only one SIM PhoneAccount can be active at one time for DSDS. Only that SIM PhoneAccount
         // Should be available if a call is already active on the SIM account.
@@ -2369,6 +2493,10 @@ public class CallsManager extends Call.ListenerBase
             }
         }
         return allAccounts;
+    }
+
+    private TelephonyManager getTelephonyManager() {
+        return mContext.getSystemService(TelephonyManager.class);
     }
 
     /**
@@ -2588,6 +2716,15 @@ public class CallsManager extends Call.ListenerBase
                             CallState.ACTIVE,
                             "active set explicitly for self-managed")));
         } else {
+            if (mPendingAudioProcessingCall == call) {
+                if (mCalls.contains(call)) {
+                    setCallState(call, CallState.AUDIO_PROCESSING, "active set explicitly");
+                } else {
+                    call.setState(CallState.AUDIO_PROCESSING, "active set explicitly and adding");
+                    addCall(call);
+                }
+                return;
+            }
             setCallState(call, CallState.ACTIVE, "active set explicitly");
             maybeMoveToSpeakerPhone(call);
             ensureCallAudible();
@@ -2606,6 +2743,12 @@ public class CallsManager extends Call.ListenerBase
      * @param disconnectCause The disconnect cause, see {@link android.telecom.DisconnectCause}.
      */
     void markCallAsDisconnected(Call call, DisconnectCause disconnectCause) {
+        if (call.getState() == CallState.SIMULATED_RINGING
+                && disconnectCause.getCode() == DisconnectCause.REMOTE) {
+            // If the remote end hangs up while in SIMULATED_RINGING, the call should
+            // be marked as missed.
+            call.setOverrideDisconnectCauseCode(DisconnectCause.MISSED);
+        }
         call.setDisconnectCause(disconnectCause);
         setCallState(call, CallState.DISCONNECTED, "disconnected set explicitly");
         // Emergency MO call is still pending and current active call is
@@ -2726,6 +2869,11 @@ public class CallsManager extends Call.ListenerBase
         return getFirstCallWithState(CallState.RINGING, CallState.ANSWERED) != null;
     }
 
+    boolean hasRingingOrSimulatedRingingCall() {
+        return getFirstCallWithState(
+                CallState.SIMULATED_RINGING, CallState.RINGING, CallState.ANSWERED) != null;
+    }
+
     @VisibleForTesting
     public boolean onMediaButton(int type) {
         if (hasAnyCalls()) {
@@ -2828,8 +2976,9 @@ public class CallsManager extends Call.ListenerBase
     }
 
     @VisibleForTesting
-    public Call getRingingCall() {
-        return getFirstCallWithState(CallState.RINGING, CallState.ANSWERED);
+    public Call getRingingOrSimulatedRingingCall() {
+        return getFirstCallWithState(CallState.RINGING,
+                CallState.ANSWERED, CallState.SIMULATED_RINGING);
     }
 
     public Call getActiveCall() {
@@ -3511,7 +3660,7 @@ public class CallsManager extends Call.ListenerBase
         // Reject If there is any Incoming Call while initiating an
         // an Emergency Call.
         if (isEmergency && hasMaximumManagedRingingCalls(call)) {
-            Call rinigingCall = getRingingCall();
+            Call rinigingCall = getRingingOrSimulatedRingingCall();
             rinigingCall.reject(false, null);
         }
         if (hasMaximumLiveCalls(call)) {
@@ -4687,9 +4836,14 @@ public class CallsManager extends Call.ListenerBase
 
                 // We do not update the UI until we get confirmation of the answer() through
                 // {@link #markCallAsActive}.
-                mCall.answer(mVideoState);
                 if (mCall.getState() == CallState.RINGING) {
+                    mCall.answer(mVideoState);
                     setCallState(mCall, CallState.ANSWERED, "answered");
+                } else if (mCall.getState() == CallState.SIMULATED_RINGING) {
+                    // If the call's in simulated ringing, we don't have to wait for the CS --
+                    // we can just declare it active.
+                    setCallState(mCall, CallState.ACTIVE, "answering simulated ringing");
+                    Log.addEvent(mCall, LogUtils.Events.REQUEST_SIMULATED_ACCEPT);
                 }
                 if (isSpeakerphoneAutoEnabledForVideoCalls(mVideoState)) {
                     mCall.setStartWithSpeakerphoneOn(true);
