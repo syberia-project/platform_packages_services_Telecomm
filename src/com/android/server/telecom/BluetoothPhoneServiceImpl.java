@@ -86,12 +86,15 @@ public class BluetoothPhoneServiceImpl {
     // Add all held calls to a conference
     private static final int CHLD_TYPE_ADDHELDTOCONF = 3;
 
+    // Indicates that no call is ringing
+    private static final int DEFAULT_RINGING_ADDRESS_TYPE = 128;
+
     private int mNumActiveCalls = 0;
     private int mNumHeldCalls = 0;
     private int mNumChildrenOfActiveCall = 0;
     private int mBluetoothCallState = CALL_STATE_IDLE;
-    private String mRingingAddress = null;
-    private int mRingingAddressType = 0;
+    private String mRingingAddress = "";
+    private int mRingingAddressType = DEFAULT_RINGING_ADDRESS_TYPE;
     private Call mOldHeldCall = null;
     private boolean mIsDisconnectedTonePlaying = false;
     private boolean isAnswercallInProgress = false;
@@ -291,7 +294,7 @@ public class BluetoothPhoneServiceImpl {
         @Override
         public boolean isHighDefCallInProgress() {
             boolean isHighDef = false;
-            Call ringingCall = mCallsManager.getRingingCall();
+            Call ringingCall = mCallsManager.getRingingOrSimulatedRingingCall();
             Call dialingCall = mCallsManager.getOutgoingCall();
             Call activeCall = mCallsManager.getActiveCall();
 
@@ -818,13 +821,13 @@ public class BluetoothPhoneServiceImpl {
         Call activeCall = mCallsManager.getActiveCall();
 
         /* Treat ANSWERED state call also as ringing call as BT is not aware of this state */
-        Call ringingCall = mCallsManager.getRingingCall();
+        Call ringingCall = mCallsManager.getRingingOrSimulatedRingingCall();
         Call heldCall = mCallsManager.getHeldCall();
 
         int bluetoothCallState = getBluetoothCallStateForUpdate();
 
         String ringingAddress = null;
-        int ringingAddressType = 128;
+        int ringingAddressType = DEFAULT_RINGING_ADDRESS_TYPE;
         String ringingName = null;
         if (ringingCall != null && ringingCall.getHandle() != null
             && !ringingCall.isSilentRingingRequested()) {
@@ -962,7 +965,7 @@ public class BluetoothPhoneServiceImpl {
     private int getBluetoothCallStateForUpdate() {
         /* getRingingCall() gets call in RINGING and ANSWERED state. Update BT
          * about ANSWERED call also as RINGING as BT is not aware of this state */
-        Call ringingCall = mCallsManager.getRingingCall();
+        Call ringingCall = mCallsManager.getRingingOrSimulatedRingingCall();
         Call dialingCall = mCallsManager.getOutgoingCall();
         boolean hasOnlyDisconnectedCalls = mCallsManager.hasOnlyDisconnectedCalls();
 
@@ -992,6 +995,7 @@ public class BluetoothPhoneServiceImpl {
             case CallState.NEW:
             case CallState.ABORTED:
             case CallState.DISCONNECTED:
+            case CallState.AUDIO_PROCESSING:
                 return CALL_STATE_IDLE;
 
             case CallState.ACTIVE:
@@ -1015,6 +1019,7 @@ public class BluetoothPhoneServiceImpl {
 
             case CallState.RINGING:
             case CallState.ANSWERED:
+            case CallState.SIMULATED_RINGING:
                 if (call.isSilentRingingRequested()) {
                     return CALL_STATE_IDLE;
                 } else if (isForeground) {

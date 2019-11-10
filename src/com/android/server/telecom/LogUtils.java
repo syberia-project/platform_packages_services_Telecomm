@@ -68,6 +68,8 @@ public class LogUtils {
         public static final String ICA_UNHOLD_CALL = "ICA.uC";
         public static final String ICA_MUTE = "ICA.m";
         public static final String ICA_SET_AUDIO_ROUTE = "ICA.sAR";
+        public static final String ICA_ENTER_AUDIO_PROCESSING = "ICA.enBAP";
+        public static final String ICA_EXIT_AUDIO_PROCESSING = "ICA.exBAP";
         public static final String ICA_CONFERENCE = "ICA.c";
         public static final String CSW_HANDLE_CREATE_CONNECTION_COMPLETE = "CSW.hCCC";
         public static final String CSW_SET_ACTIVE = "CSW.sA";
@@ -101,6 +103,9 @@ public class LogUtils {
         public static final String REQUEST_UNHOLD = "REQUEST_UNHOLD";
         public static final String REQUEST_DISCONNECT = "REQUEST_DISCONNECT";
         public static final String REQUEST_ACCEPT = "REQUEST_ACCEPT";
+        public static final String REQUEST_SIMULATED_ACCEPT = "REQUEST_SIMULATED_ACCEPT";
+        public static final String REQUEST_PICKUP_FOR_AUDIO_PROCESSING =
+                "REQUEST_PICKUP_FOR_AUDIO_PROCESSING";
         public static final String REQUEST_DEFLECT = "REQUEST_DEFLECT";
         public static final String REQUEST_REJECT = "REQUEST_REJECT";
         public static final String START_DTMF = "START_DTMF";
@@ -137,6 +142,7 @@ public class LogUtils {
         public static final String BIND_SCREENING = "BIND_SCREENING";
         public static final String SCREENING_BOUND = "SCREENING_BOUND";
         public static final String SCREENING_SENT = "SCREENING_SENT";
+        public static final String SCREENING_SKIPPED = "SCREENING_SKIPPED";
         public static final String CONTROLLER_SCREENING_COMPLETED =
                 "CONTROLLER_SCREENING_COMPLETED";
         public static final String SCREENING_COMPLETED = "SCREENING_COMPLETED";

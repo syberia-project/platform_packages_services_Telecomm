@@ -85,7 +85,7 @@ final class PhoneStateBroadcaster extends CallsManagerListenerBase {
         // Note: CallsManager#hasRingingCall() and CallsManager#getFirstCallWithState(..) do not
         // consider external calls, so an external call is going to cause the state to be idle.
         int callState = TelephonyManager.CALL_STATE_IDLE;
-        if (mCallsManager.hasRingingCall()) {
+        if (mCallsManager.hasRingingOrSimulatedRingingCall()) {
             callState = TelephonyManager.CALL_STATE_RINGING;
         } else if (mCallsManager.getFirstCallWithState(CallState.DIALING, CallState.PULLING,
                 CallState.ACTIVE, CallState.ON_HOLD) != null) {
@@ -114,7 +114,7 @@ final class PhoneStateBroadcaster extends CallsManagerListenerBase {
 
         try {
             if (mRegistry != null) {
-                mRegistry.notifyCallState(phoneState, callHandle);
+                mRegistry.notifyCallStateForAllSubs(phoneState, callHandle);
                 Log.i(this, "Broadcasted state change: %s", mCurrentState);
             }
         } catch (RemoteException e) {

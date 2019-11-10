@@ -47,6 +47,8 @@ import android.telecom.StatusHints;
 import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.TelephonyManager;
+import android.telephony.emergency.EmergencyNumber;
 import android.text.TextUtils;
 import android.util.StatsLog;
 import android.os.UserHandle;
@@ -62,11 +64,13 @@ import java.io.IOException;
 import java.lang.String;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -336,6 +340,10 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
     private boolean mIsEmergencyCall;
 
+    // The Call is considered an emergency call for testing, but will not actually connect to
+    // emergency services.
+    private boolean mIsTestEmergencyCall;
+
     private boolean mSpeakerphoneOn;
 
     private boolean mIsDisconnectingChildCall = false;
@@ -356,6 +364,12 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      * See {@link android.telecom.DisconnectCause}.
      */
     private DisconnectCause mDisconnectCause = new DisconnectCause(DisconnectCause.UNKNOWN);
+
+    /**
+     * Override the disconnect cause set by the connection service. Used for audio processing and
+     * simulated ringing calls.
+     */
+    private int mOverrideDisconnectCauseCode = DisconnectCause.UNKNOWN;
 
     private Bundle mIntentExtras = new Bundle();
 
@@ -431,6 +445,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
     private boolean mWasConferencePreviouslyMerged = false;
     private boolean mWasHighDefAudio = false;
+    private boolean mWasWifi = false;
+    private boolean mWasVolte = false;
 
     // For conferences which support merge/swap at their level, we retain a notion of an active
     // call. This is used for BluetoothPhoneService.  In order to support hold/merge, it must have
@@ -528,6 +544,12 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      * int, Bundle, boolean)}, contains the call which this call is being handed over from.
      */
     private Call mHandoverSourceCall = null;
+
+    /**
+     * The user-visible app name of the app that requested for this call to be put into the
+     * AUDIO_PROCESSING state. Used to display a notification to the user.
+     */
+    private CharSequence mAudioProcessingRequestingApp = null;
 
     /**
      * Indicates the current state of this call if it is in the process of a handover.
@@ -1076,15 +1098,26 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             // call, it will remain so for the rest of it's lifetime.
             if (!mIsEmergencyCall) {
                 mIsEmergencyCall = mHandle != null &&
-                        mPhoneNumberUtilsAdapter.isLocalEmergencyNumber(mContext,
-                                mHandle.getSchemeSpecificPart());
+                        getTelephonyManager().isEmergencyNumber(mHandle.getSchemeSpecificPart());
                 mAnalytics.setCallIsEmergency(mIsEmergencyCall);
+            }
+            if (!mIsTestEmergencyCall) {
+                mIsTestEmergencyCall = mHandle != null &&
+                        isTestEmergencyCall(mHandle.getSchemeSpecificPart());
             }
             startCallerInfoLookup();
             for (Listener l : mListeners) {
                 l.onHandleChanged(this);
             }
         }
+    }
+
+    private boolean isTestEmergencyCall(String number) {
+        Map<Integer, List<EmergencyNumber>> eMap = getTelephonyManager().getEmergencyNumberList();
+        return eMap.values().stream().flatMap(Collection::stream)
+                .anyMatch(eNumber ->
+                        eNumber.isFromSources(EmergencyNumber.EMERGENCY_NUMBER_SOURCE_TEST) &&
+                                number.equals(eNumber.getNumber()));
     }
 
     public String getCallerDisplayName() {
@@ -1129,9 +1162,19 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     public void setDisconnectCause(DisconnectCause disconnectCause) {
         // TODO: Consider combining this method with a setDisconnected() method that is totally
         // separate from setState.
+        if (mOverrideDisconnectCauseCode != DisconnectCause.UNKNOWN) {
+            disconnectCause = new DisconnectCause(mOverrideDisconnectCauseCode,
+                    disconnectCause.getLabel(), disconnectCause.getDescription(),
+                    disconnectCause.getReason(), disconnectCause.getTone());
+        }
         mAnalytics.setCallDisconnectCause(disconnectCause);
         mDisconnectCause = disconnectCause;
     }
+
+    public void setOverrideDisconnectCauseCode(int overrideDisconnectCauseCode) {
+        mOverrideDisconnectCauseCode = overrideDisconnectCauseCode;
+    }
+
 
     public DisconnectCause getDisconnectCause() {
         return mDisconnectCause;
@@ -1144,6 +1187,15 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     @VisibleForTesting
     public boolean isEmergencyCall() {
         return mIsEmergencyCall;
+    }
+
+    /**
+     * @return {@code true} if this an outgoing call to a test emergency number (and NOT to
+     * emergency services). Used for testing purposes to differentiate between a real and fake
+     * emergency call for safety reasons during testing.
+     */
+    public boolean isTestEmergencyCall() {
+        return mIsTestEmergencyCall;
     }
 
     /**
@@ -1566,6 +1618,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             }
             mWasHighDefAudio = (connectionProperties & Connection.PROPERTY_HIGH_DEF_AUDIO) ==
                     Connection.PROPERTY_HIGH_DEF_AUDIO;
+            mWasWifi = (connectionProperties & Connection.PROPERTY_WIFI) > 0;
             for (Listener l : mListeners) {
                 l.onConnectionPropertiesChanged(this, didRttChange);
             }
@@ -1893,6 +1946,13 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             Log.v(this, "Aborting call %s", this);
             abort(disconnectionTimeout);
         } else if (mState != CallState.ABORTED && mState != CallState.DISCONNECTED) {
+            if (mState == CallState.AUDIO_PROCESSING) {
+                mOverrideDisconnectCauseCode = DisconnectCause.REJECTED;
+            } else if (mState == CallState.SIMULATED_RINGING) {
+                // This is the case where the dialer calls disconnect() because the call timed out
+                // Override the disconnect cause to MISSED
+                mOverrideDisconnectCauseCode = DisconnectCause.MISSED;
+            }
             if (mConnectionService == null) {
                 Log.e(this, new Exception(), "disconnect() request on a call without a"
                         + " connection service.");
@@ -1971,6 +2031,38 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     }
 
     /**
+     * Answers the call on the connectionservice side in order to start audio processing.
+     *
+     * This pathway keeps the call in the ANSWERED state until the connection service confirms the
+     * answer, at which point we'll set it to AUDIO_PROCESSING. However, to prevent any other
+     * components from seeing the churn between RINGING -> ANSWERED -> AUDIO_PROCESSING, we'll
+     * refrain from tracking this call in CallsManager until we've stabilized in AUDIO_PROCESSING
+     */
+    public void answerForAudioProcessing() {
+        if (mState != CallState.RINGING) {
+            Log.w(this, "Trying to audio-process a non-ringing call: id=%s", mId);
+            return;
+        }
+
+        if (mConnectionService != null) {
+            mConnectionService.answer(this, VideoProfile.STATE_AUDIO_ONLY);
+        } else {
+            Log.e(this, new NullPointerException(),
+                    "answer call (audio processing) failed due to null CS callId=%s", getId());
+        }
+
+        Log.addEvent(this, LogUtils.Events.REQUEST_PICKUP_FOR_AUDIO_PROCESSING);
+    }
+
+    public void setAudioProcessingRequestingApp(CharSequence appName) {
+        mAudioProcessingRequestingApp = appName;
+    }
+
+    public CharSequence getAudioProcessingRequestingApp() {
+        return mAudioProcessingRequestingApp;
+    }
+
+    /**
      * Deflects the call if it is ringing.
      *
      * @param address address to be deflected to.
@@ -2016,9 +2108,19 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      */
     @VisibleForTesting
     public void reject(boolean rejectWithMessage, String textMessage, String reason) {
-        // Check to verify that the call is still in the ringing state. A call can change states
-        // between the time the user hits 'reject' and Telecomm receives the command.
-        if (isRinging("reject")) {
+        if (mState == CallState.SIMULATED_RINGING) {
+            // This handles the case where the user manually rejects a call that's in simulated
+            // ringing. Since the call is already active on the connectionservice side, we want to
+            // hangup, not reject.
+            mOverrideDisconnectCauseCode = DisconnectCause.REJECTED;
+            if (mConnectionService != null) {
+                mConnectionService.disconnect(this);
+            } else {
+                Log.e(this, new NullPointerException(),
+                        "reject call failed due to null CS callId=%s", getId());
+            }
+            Log.addEvent(this, LogUtils.Events.REQUEST_REJECT, reason);
+        } else if (isRinging("reject")) {
             // Ensure video state history tracks video state at time of rejection.
             mVideoStateHistory |= mVideoState;
 
@@ -2118,6 +2220,13 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
         for (Listener l : mListeners) {
             l.onExtrasChanged(this, source, extras);
+        }
+      
+        // If mExtra shows that the call using Volte, record it with mWasVolte
+        if (mExtras.containsKey(TelecomManager.EXTRA_CALL_NETWORK_TYPE) &&
+            mExtras.get(TelecomManager.EXTRA_CALL_NETWORK_TYPE)
+                    .equals(TelephonyManager.NETWORK_TYPE_LTE)) {
+            mWasVolte = true;
         }
 
         // If the change originated from an InCallService, notify the connection service.
@@ -3168,6 +3277,10 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         }
     }
 
+    private TelephonyManager getTelephonyManager() {
+        return mContext.getSystemService(TelephonyManager.class);
+    }
+
     /**
      * Sets whether this {@link Call} is a conference or not.
      * @param isConference
@@ -3207,8 +3320,26 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         return mWasHighDefAudio;
     }
 
+    /**
+     * Returns whether or not Wifi call was used.
+     *
+     * @return true if wifi call was used during this call.
+     */
+    boolean wasWifi() {
+        return mWasWifi;
+    }
+
     public void setIsUsingCallFiltering(boolean isUsingCallFiltering) {
         mIsUsingCallFiltering = isUsingCallFiltering;
+    }       
+          
+    /**
+     * Returns whether or not Volte call was used.
+     *
+     * @return true if Volte call was used during this call.
+     */
+    public boolean wasVolte() {
+        return mWasVolte;
     }
 
     /**

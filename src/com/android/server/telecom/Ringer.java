@@ -211,7 +211,8 @@ public class Ringer {
             return false;
         }
 
-        if (foregroundCall.getState() != CallState.RINGING) {
+        if (foregroundCall.getState() != CallState.RINGING
+                && foregroundCall.getState() != CallState.SIMULATED_RINGING) {
             // Its possible for bluetooth to connect JUST as a call goes active, which would mean
             // the call would start ringing again.
             Log.i(this, "startRinging called for non-ringing foreground callid=%s",
@@ -374,12 +375,12 @@ public class Ringer {
                     && mSystemSettingsUtil.enableRampingRingerFromDeviceConfig()
                     && isRingerAudible) {
                 Log.i(this, "start vibration for ramping ringer.");
-                mVibrator.vibrate(effect, VIBRATION_ATTRIBUTES);
                 mIsVibrating = true;
+                mVibrator.vibrate(effect, VIBRATION_ATTRIBUTES);
             } else {
                 Log.i(this, "start normal vibration.");
-                mVibrator.vibrate(effect, VIBRATION_ATTRIBUTES);
                 mIsVibrating = true;
+                mVibrator.vibrate(effect, VIBRATION_ATTRIBUTES);
             }
         } else if (mIsVibrating) {
             Log.addEvent(foregroundCall, LogUtils.Events.SKIP_VIBRATION, "already vibrating");
