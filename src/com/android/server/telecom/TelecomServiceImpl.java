@@ -598,7 +598,7 @@ public class TelecomServiceImpl {
                                     .getSubscriptionIdForPhoneAccount(accountHandle);
                         }
                     }
-                    return getTelephonyManager().getVoiceMailNumber(subId);
+                    return getTelephonyManager(subId).getVoiceMailNumber();
                 } catch (Exception e) {
                     Log.e(this, e, "getSubscriptionIdForPhoneAccount");
                     throw e;
@@ -633,7 +633,7 @@ public class TelecomServiceImpl {
                         subId = mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(
                                 accountHandle);
                     }
-                    return getTelephonyManager().getLine1Number(subId);
+                    return getTelephonyManager(subId).getLine1Number();
                 } catch (Exception e) {
                     Log.e(this, e, "getSubscriptionIdForPhoneAccount");
                     throw e;
@@ -698,6 +698,31 @@ public class TelecomServiceImpl {
                 try {
                     return mDefaultDialerCache.getDefaultDialerApplication(
                             ActivityManager.getCurrentUser());
+                } finally {
+                    Binder.restoreCallingIdentity(token);
+                }
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        /**
+         * @param userId user id to get the default dialer package for
+         * @return the package name of the current user-selected default dialer. If no default
+         *         has been selected, the package name of the system dialer is returned. If
+         *         neither exists, then {@code null} is returned.
+         * @see android.telecom.TelecomManager#getDefaultDialerPackage
+         */
+        @Override
+        public String getDefaultDialerPackageForUser(int userId) {
+            try {
+                Log.startSession("TSI.gDDPU");
+                mContext.enforceCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE,
+                        "READ_PRIVILEGED_PHONE_STATE permission required.");
+
+                final long token = Binder.clearCallingIdentity();
+                try {
+                    return mDefaultDialerCache.getDefaultDialerApplication(userId);
                 } finally {
                     Binder.restoreCallingIdentity(token);
                 }
@@ -950,7 +975,9 @@ public class TelecomServiceImpl {
                 long token = Binder.clearCallingIdentity();
                 boolean retval = false;
                 try {
-                    retval = getTelephonyManager().handlePinMmi(dialString);
+                    retval = getTelephonyManager(
+                            SubscriptionManager.getDefaultVoiceSubscriptionId())
+                            .handlePinMmi(dialString);
                 } finally {
                     Binder.restoreCallingIdentity(token);
                 }
@@ -991,7 +1018,8 @@ public class TelecomServiceImpl {
                         subId = mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(
                                 accountHandle);
                     }
-                    retval = getTelephonyManager().handlePinMmiForSubscriber(subId, dialString);
+                    retval = getTelephonyManager(subId)
+                            .handlePinMmiForSubscriber(subId, dialString);
                 } finally {
                     Binder.restoreCallingIdentity(token);
                 }
@@ -2085,8 +2113,9 @@ public class TelecomServiceImpl {
         }
     }
 
-    private TelephonyManager getTelephonyManager() {
-        return (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
+    private TelephonyManager getTelephonyManager(int subId) {
+        return ((TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE))
+                .createForSubscriptionId(subId);
     }
 
     /**

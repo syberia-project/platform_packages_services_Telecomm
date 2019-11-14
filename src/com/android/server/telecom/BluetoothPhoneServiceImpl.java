@@ -205,7 +205,7 @@ public class BluetoothPhoneServiceImpl {
                         }
                     } else {
                         // Finally, just get the network name from telephony.
-                         label = TelephonyManager.from(mContext)
+                        label = mContext.getSystemService(TelephonyManager.class)
                                 .getNetworkOperatorName();
                     }
                     return label;
@@ -233,7 +233,8 @@ public class BluetoothPhoneServiceImpl {
                         }
                     }
                     if (TextUtils.isEmpty(address)) {
-                        address = TelephonyManager.from(mContext).getLine1Number();
+                        address = mContext.getSystemService(TelephonyManager.class)
+                                .getLine1Number();
                         if (address == null) address = "";
                     }
                     return address;
