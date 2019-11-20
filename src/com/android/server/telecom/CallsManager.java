@@ -16,6 +16,10 @@
 
 package com.android.server.telecom;
 
+import static com.android.internal.telephony.TelephonyProperties.ADD_PARTICIPANT_KEY;
+import static com.android.internal.telephony.TelephonyProperties.EXTRA_DIAL_CONFERENCE_URI;
+import static com.android.internal.telephony.TelephonyProperties.EXTRA_SKIP_SCHEMA_PARSING;
+
 import android.Manifest;
 import android.annotation.NonNull;
 import android.app.ActivityManager;
@@ -1417,7 +1421,7 @@ public class CallsManager extends Call.ListenerBase
                     mClockProxy,
                     mToastFactory);
             if ((extras != null) &&
-                    extras.getBoolean(TelephonyProperties.EXTRA_DIAL_CONFERENCE_URI, false)) {
+                    extras.getBoolean(EXTRA_DIAL_CONFERENCE_URI, false)) {
                 //Reset PostDialDigits with empty string for ConfURI call.
                 call.setPostDialDigits("");
             }
@@ -1471,10 +1475,10 @@ public class CallsManager extends Call.ListenerBase
         }
 
         boolean isAddParticipant = ((extras != null) && (extras.getBoolean(
-                TelephonyProperties.ADD_PARTICIPANT_KEY, false)));
+                ADD_PARTICIPANT_KEY, false)));
         boolean isSkipSchemaOrConfUri = ((extras != null) && (extras.getBoolean(
-                TelephonyProperties.EXTRA_SKIP_SCHEMA_PARSING, false) ||
-                extras.getBoolean(TelephonyProperties.EXTRA_DIAL_CONFERENCE_URI, false)));
+                EXTRA_SKIP_SCHEMA_PARSING, false) ||
+                extras.getBoolean(EXTRA_DIAL_CONFERENCE_URI, false)));
 
         if (isAddParticipant) {
             String number = handle.getSchemeSpecificPart();
