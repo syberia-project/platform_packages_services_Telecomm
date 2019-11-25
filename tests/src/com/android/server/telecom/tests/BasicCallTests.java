@@ -38,8 +38,6 @@ import android.content.IContentProvider;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.Process;
 import android.provider.BlockedNumberContract;
 import android.telecom.Call;
@@ -59,7 +57,7 @@ import android.test.suitebuilder.annotation.MediumTest;
 import androidx.test.filters.FlakyTest;
 
 import com.android.internal.telecom.IInCallAdapter;
-import android.telephony.CallerInfo;
+import android.telecom.CallerInfo;
 
 import com.google.common.base.Predicate;
 
@@ -360,6 +358,7 @@ public class BasicCallTests extends TelecomSystemTest {
                 mInCallServiceFixtureY.getCall(ids.mCallId).getState());
     }
 
+    @FlakyTest
     @LargeTest
     @Test
     public void testIncomingCallFromContactWithSendToVoicemailIsRejected() throws Exception {

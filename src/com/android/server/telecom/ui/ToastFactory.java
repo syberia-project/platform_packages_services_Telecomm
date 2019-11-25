@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.android.server.telecom;
 
-import android.telecom.CallerInfoAsyncQuery;
+package com.android.server.telecom.ui;
 
+import android.annotation.StringRes;
 import android.content.Context;
+import android.widget.Toast;
 
-public interface CallerInfoAsyncQueryFactory {
-    CallerInfoAsyncQuery startQuery(int token, Context context, String number,
-            CallerInfoAsyncQuery.OnQueryCompleteListener listener, Object cookie);
+public interface ToastFactory {
+    Toast makeText(Context context, @StringRes int resId, int duration);
+    Toast makeText(Context context, CharSequence text, int duration);
 }
