@@ -26,6 +26,7 @@ public class TestDialerActivity extends Activity {
 
     private EditText mNumberView;
     private CheckBox mRttCheckbox;
+    private EditText mPriorityView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,10 +62,16 @@ public class TestDialerActivity extends Activity {
 
         mNumberView = (EditText) findViewById(R.id.number);
         mRttCheckbox = (CheckBox) findViewById(R.id.call_with_rtt_checkbox);
-        findViewById(R.id.toggle_car_mode).setOnClickListener(new OnClickListener() {
+        findViewById(R.id.enable_car_mode).setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                toggleCarMode();
+                enableCarMode();
+            }
+        });
+        findViewById(R.id.disable_car_mode).setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                disableCarMode();
             }
         });
         findViewById(R.id.toggle_incallservice).setOnClickListener(new OnClickListener() {
@@ -73,6 +80,7 @@ public class TestDialerActivity extends Activity {
                 toggleInCallService();
             }
         });
+        mPriorityView = findViewById(R.id.priority);
         updateMutableUi();
     }
 
@@ -158,14 +166,25 @@ public class TestDialerActivity extends Activity {
         return intentExtras;
     }
 
-    private void toggleCarMode() {
-        UiModeManager uiModeManager = (UiModeManager) getSystemService(UI_MODE_SERVICE);
-        boolean isCarMode = uiModeManager.getCurrentModeType() == UI_MODE_TYPE_CAR;
-        if (isCarMode) {
-            uiModeManager.disableCarMode(0);
-        } else {
-            uiModeManager.enableCarMode(0);
+    private void enableCarMode() {
+        int priority;
+        try {
+            priority = Integer.parseInt(mPriorityView.getText().toString());
+        } catch (NumberFormatException nfe) {
+            Toast.makeText(this, "Invalid priority; not enabling car mode.",
+                    Toast.LENGTH_LONG).show();
+            return;
         }
+        UiModeManager uiModeManager = (UiModeManager) getSystemService(UI_MODE_SERVICE);
+        uiModeManager.enableCarMode(priority, 0);
+        Toast.makeText(this, "Enabling car mode with priority " + priority,
+                Toast.LENGTH_LONG).show();
+    }
+
+    private void disableCarMode() {
+        UiModeManager uiModeManager = (UiModeManager) getSystemService(UI_MODE_SERVICE);
+        uiModeManager.disableCarMode(0);
+        Toast.makeText(this, "Disabling car mode", Toast.LENGTH_LONG).show();
     }
 
     private void toggleInCallService() {
