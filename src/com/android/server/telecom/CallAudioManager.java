@@ -367,7 +367,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
     @VisibleForTesting
     public void toggleMute() {
         // Don't mute if there are any emergency calls.
-        if (mCallsManager.hasEmergencyCall()) {
+        if (mCallsManager.isInEmergencyCall()) {
             Log.v(this, "ignoring toggleMute for emergency call");
             return;
         }
@@ -399,7 +399,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
         Log.v(this, "mute, shouldMute: %b", shouldMute);
 
         // Don't mute if there are any emergency calls.
-        if (mCallsManager.hasEmergencyCall()) {
+        if (mCallsManager.isInEmergencyCall()) {
             shouldMute = false;
             Log.v(this, "ignoring mute for emergency call");
         }
