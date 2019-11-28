@@ -1,6 +1,9 @@
 package com.android.server.telecom;
 
-import com.android.internal.telephony.TelephonyProperties;
+import static com.android.internal.telephony.TelephonyIntents.ADD_PARTICIPANT_KEY;
+import static com.android.internal.telephony.TelephonyIntents.EXTRA_DIAL_CONFERENCE_URI;
+import static com.android.internal.telephony.TelephonyIntents.EXTRA_SKIP_SCHEMA_PARSING;
+
 import com.android.server.telecom.components.ErrorDialogActivity;
 
 import android.content.Context;
@@ -116,7 +119,7 @@ public class CallIntentProcessor {
         String scheme = handle.getScheme();
         String uriString = handle.getSchemeSpecificPart();
         boolean isSkipSchemaParsing = intent.getBooleanExtra(
-                TelephonyProperties.EXTRA_SKIP_SCHEMA_PARSING, false);
+                EXTRA_SKIP_SCHEMA_PARSING, false);
         Log.d(CallIntentProcessor.class, "isSkipSchemaParsing = " + isSkipSchemaParsing);
 
         // Ensure sip URIs dialed using TEL scheme get converted to SIP scheme.
@@ -135,21 +138,21 @@ public class CallIntentProcessor {
             clientExtras = new Bundle();
         }
         if (isSkipSchemaParsing) {
-            clientExtras.putBoolean(TelephonyProperties.EXTRA_SKIP_SCHEMA_PARSING,
+            clientExtras.putBoolean(EXTRA_SKIP_SCHEMA_PARSING,
                     isSkipSchemaParsing);
             handle = Uri.fromParts(PhoneAccount.SCHEME_TEL, handle.toString(), null);
         }
         boolean isConferenceUri = intent.getBooleanExtra(
-                TelephonyProperties.EXTRA_DIAL_CONFERENCE_URI, false);
+                EXTRA_DIAL_CONFERENCE_URI, false);
         Log.d(CallIntentProcessor.class, "isConferenceUri = "+isConferenceUri);
         if (isConferenceUri) {
-            clientExtras.putBoolean(TelephonyProperties.EXTRA_DIAL_CONFERENCE_URI, isConferenceUri);
+            clientExtras.putBoolean(EXTRA_DIAL_CONFERENCE_URI, isConferenceUri);
         }
         boolean isAddParticipant = intent.getBooleanExtra(
-                TelephonyProperties.ADD_PARTICIPANT_KEY, false);
+                ADD_PARTICIPANT_KEY, false);
         Log.d(CallIntentProcessor.class, "isAddparticipant = "+isAddParticipant);
         if (isAddParticipant) {
-            clientExtras.putBoolean(TelephonyProperties.ADD_PARTICIPANT_KEY, isAddParticipant);
+            clientExtras.putBoolean(ADD_PARTICIPANT_KEY, isAddParticipant);
         }
         if (intent.hasExtra(TelecomManager.EXTRA_START_CALL_WITH_RTT)) {
             boolean isStartRttCall = intent.getBooleanExtra(
