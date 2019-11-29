@@ -16,6 +16,9 @@
 
 package com.android.server.telecom;
 
+import static com.android.internal.telephony.TelephonyIntents.EXTRA_DIAL_CONFERENCE_URI;
+import static com.android.internal.telephony.TelephonyIntents.EXTRA_SKIP_SCHEMA_PARSING;
+
 import android.app.AppOpsManager;
 
 import android.app.Activity;
@@ -39,7 +42,6 @@ import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.telephony.TelephonyProperties;
 import com.android.server.telecom.callredirection.CallRedirectionProcessor;
 
 // TODO: Needed for move to system service: import com.android.internal.R;
@@ -162,7 +164,7 @@ public class NewOutgoingCallIntentBroadcaster {
                         return;
                     }
                     boolean isSkipSchemaParsing = mIntent.getBooleanExtra(
-                            TelephonyProperties.EXTRA_SKIP_SCHEMA_PARSING, false);
+                            EXTRA_SKIP_SCHEMA_PARSING, false);
                     Uri resultHandleUri = null;
                     Uri originalUri = mIntent.getData();
                     if (isSkipSchemaParsing) {
@@ -327,14 +329,14 @@ public class NewOutgoingCallIntentBroadcaster {
         String number;
         number = mPhoneNumberUtilsAdapter.getNumberFromIntent(intent, mContext);
         boolean isConferenceUri = intent.getBooleanExtra(
-                TelephonyProperties.EXTRA_DIAL_CONFERENCE_URI, false);
+                EXTRA_DIAL_CONFERENCE_URI, false);
         if (!isConferenceUri && TextUtils.isEmpty(number)) {
             Log.w(this, "Empty number obtained from the call intent.");
             return null;
         }
 
         boolean isSkipSchemaParsing = intent.getBooleanExtra(
-                TelephonyProperties.EXTRA_SKIP_SCHEMA_PARSING, false);
+                EXTRA_SKIP_SCHEMA_PARSING, false);
 
         boolean isUriNumber = mPhoneNumberUtilsAdapter.isUriNumber(number);
         Log.v(this,"processIntent isConferenceUri: " + isConferenceUri +
@@ -388,7 +390,7 @@ public class NewOutgoingCallIntentBroadcaster {
             UserHandle targetUser = mCall.getInitiatingUser();
             Log.i(this, "Sending NewOutgoingCallBroadcast for %s to %s", mCall, targetUser);
             boolean isSkipSchemaParsing = mIntent.getBooleanExtra(
-                    TelephonyProperties.EXTRA_SKIP_SCHEMA_PARSING, false);
+                    EXTRA_SKIP_SCHEMA_PARSING, false);
             String number = isSkipSchemaParsing
                 ? disposition.callingAddress.toString()
                 : disposition.number;

@@ -16,9 +16,9 @@
 
 package com.android.server.telecom;
 
-import static com.android.internal.telephony.TelephonyProperties.ADD_PARTICIPANT_KEY;
-import static com.android.internal.telephony.TelephonyProperties.EXTRA_DIAL_CONFERENCE_URI;
-import static com.android.internal.telephony.TelephonyProperties.EXTRA_SKIP_SCHEMA_PARSING;
+import static com.android.internal.telephony.TelephonyIntents.EXTRA_DIAL_CONFERENCE_URI;
+import static com.android.internal.telephony.TelephonyIntents.ADD_PARTICIPANT_KEY;
+import static com.android.internal.telephony.TelephonyIntents.EXTRA_SKIP_SCHEMA_PARSING;
 
 import android.Manifest;
 import android.annotation.NonNull;

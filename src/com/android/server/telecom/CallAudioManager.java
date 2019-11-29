@@ -16,6 +16,8 @@
 
 package com.android.server.telecom;
 
+import static com.android.internal.telephony.TelephonyIntents.EXTRA_DIAL_CONFERENCE_URI;
+
 import android.annotation.NonNull;
 import android.media.IAudioService;
 import android.media.ToneGenerator;
@@ -26,7 +28,6 @@ import android.telecom.VideoProfile;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.telecom.CallAudioModeStateMachine.MessageArgs.Builder;
 import com.android.server.telecom.bluetooth.BluetoothStateReceiver;
@@ -382,7 +383,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
         Bundle callExtra = (disconnectedCall != null) ? disconnectedCall.getIntentExtras() : null;
         final boolean isMoConfURICallDisconnected = (callExtra == null) ? false :
                 !disconnectedCall.isIncoming() &&
-                callExtra.getBoolean(TelephonyProperties.EXTRA_DIAL_CONFERENCE_URI, false);
+                callExtra.getBoolean(EXTRA_DIAL_CONFERENCE_URI, false);
         Log.i(this, "is ConfURI call disconnected = " + isMoConfURICallDisconnected + " call = "
                 + disconnectedCall);
         return isMoConfURICallDisconnected && !mCallsManager.hasOnlyDisconnectedCalls();
