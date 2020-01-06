@@ -212,11 +212,12 @@ public class TelecomSystemTest extends TelecomTestCase {
             new ComponentName(
                     "incall-service-package-X",
                     "incall-service-class-X");
+    private static final int SERVICE_X_UID = 1;
     final ComponentName mInCallServiceComponentNameY =
             new ComponentName(
                     "incall-service-package-Y",
                     "incall-service-class-Y");
-
+    private static final int SERVICE_Y_UID = 1;
     InCallServiceFixture mInCallServiceFixtureX;
     InCallServiceFixture mInCallServiceFixtureY;
 
@@ -472,7 +473,6 @@ public class TelecomSystemTest extends TelecomTestCase {
         when(mClockProxy.elapsedRealtime()).thenReturn(TEST_CREATE_ELAPSED_TIME);
         when(mRoleManagerAdapter.getCallCompanionApps()).thenReturn(Collections.emptyList());
         when(mRoleManagerAdapter.getDefaultCallScreeningApp()).thenReturn(null);
-        when(mRoleManagerAdapter.getCarModeDialerApp()).thenReturn(null);
         mTelecomSystem = new TelecomSystem(
                 mComponentContextFixture.getTestDouble(),
                 (context, phoneAccountRegistrar, defaultDialerCache) -> mMissedCallNotifier,
@@ -581,16 +581,17 @@ public class TelecomSystemTest extends TelecomTestCase {
         mComponentContextFixture.putResource(
                 com.android.server.telecom.R.string.incall_default_class,
                 mInCallServiceComponentNameX.getClassName());
-        mComponentContextFixture.putBooleanResource(
-                com.android.internal.R.bool.config_voice_capable, true);
+
+        doReturn(true).when(mComponentContextFixture.getTelephonyManager())
+                .isVoiceCapable();
 
         mInCallServiceFixtureX = new InCallServiceFixture();
         mInCallServiceFixtureY = new InCallServiceFixture();
 
         mComponentContextFixture.addInCallService(mInCallServiceComponentNameX,
-                mInCallServiceFixtureX.getTestDouble());
+                mInCallServiceFixtureX.getTestDouble(), SERVICE_X_UID);
         mComponentContextFixture.addInCallService(mInCallServiceComponentNameY,
-                mInCallServiceFixtureY.getTestDouble());
+                mInCallServiceFixtureY.getTestDouble(), SERVICE_Y_UID);
     }
 
     /**
