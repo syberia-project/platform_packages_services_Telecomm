@@ -450,8 +450,8 @@ public class TelecomServiceImpl {
             try {
                 Log.startSession("TSI.rPA");
                 synchronized (mLock) {
-                    if (!mContext.getApplicationContext().getResources().getBoolean(
-                            com.android.internal.R.bool.config_voice_capable)) {
+                    if (!((TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE))
+                                .isVoiceCapable()) {
                         Log.w(this,
                                 "registerPhoneAccount not allowed on non-voice capable device.");
                         return;
@@ -1674,27 +1674,6 @@ public class TelecomServiceImpl {
                     try {
                         mCallsManager.getRoleManagerAdapter().addOrRemoveTestCallCompanionApp(
                                 packageName, isAdded);
-                    } finally {
-                        Binder.restoreCallingIdentity(token);
-                    }
-                }
-            } finally {
-                Log.endSession();
-            }
-        }
-
-        @Override
-        public void setTestAutoModeApp(String packageName) {
-            try {
-                Log.startSession("TSI.sTAMA");
-                enforceModifyPermission();
-                if (!Build.IS_USERDEBUG) {
-                    throw new SecurityException("Test-only API.");
-                }
-                synchronized (mLock) {
-                    long token = Binder.clearCallingIdentity();
-                    try {
-                        mCallsManager.getRoleManagerAdapter().setTestAutoModeApp(packageName);
                     } finally {
                         Binder.restoreCallingIdentity(token);
                     }
