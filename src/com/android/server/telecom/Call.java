@@ -139,6 +139,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         boolean onCanceledViaNewOutgoingCallBroadcast(Call call, long disconnectionTimeout);
         void onHoldToneRequested(Call call);
         void onCallHoldFailed(Call call);
+        void onCallSwitchFailed(Call call);
         void onConnectionEvent(Call call, String event, Bundle extras);
         void onExternalCallChanged(Call call, boolean isExternalCall);
         void onRttInitiationFailure(Call call, int reason);
@@ -214,6 +215,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         public void onHoldToneRequested(Call call) {}
         @Override
         public void onCallHoldFailed(Call call) {}
+        @Override
+        public void onCallSwitchFailed(Call call) {}
         @Override
         public void onConnectionEvent(Call call, String event, Bundle extras) {}
         @Override
@@ -579,6 +582,13 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      * user never got the chance to explicitly reject).
      */
     private boolean mHasGoneActiveBefore = false;
+
+    /**
+     * Indicates the package name of the {@link android.telecom.CallScreeningService} which should
+     * be sent the {@link android.telecom.TelecomManager#ACTION_POST_CALL} intent upon disconnection
+     * of a call.
+     */
+    private String mPostCallPackageName;
 
     /**
      * Persists the specified parameters and initializes the new instance.
@@ -3237,6 +3247,10 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             for (Listener l : mListeners) {
                 l.onCallHoldFailed(this);
             }
+        } else if (Connection.EVENT_CALL_SWITCH_FAILED.equals(event)) {
+            for (Listener l : mListeners) {
+                l.onCallSwitchFailed(this);
+            }
         } else {
             for (Listener l : mListeners) {
                 l.onConnectionEvent(this, event, extras);
@@ -3436,5 +3450,24 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                 return CALL_DIRECTION_UNDEFINED;
         }
         return CALL_DIRECTION_UNDEFINED;
+    }
+
+    /**
+     * Set the package name of the {@link android.telecom.CallScreeningService} which should be sent
+     * the {@link android.telecom.TelecomManager#ACTION_POST_CALL} upon disconnection of a call.
+     * @param packageName post call screen service package name.
+     */
+    public void setPostCallPackageName(String packageName) {
+        mPostCallPackageName = packageName;
+    }
+
+    /**
+     * Return the package name of the {@link android.telecom.CallScreeningService} which should be
+     * sent the {@link android.telecom.TelecomManager#ACTION_POST_CALL} upon disconnection of a
+     * call.
+     * @return post call screen service package name.
+     */
+    public String getPostCallPackageName() {
+        return mPostCallPackageName;
     }
 }
