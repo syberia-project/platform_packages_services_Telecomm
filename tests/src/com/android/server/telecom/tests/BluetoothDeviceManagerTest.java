@@ -16,6 +16,7 @@
 
 package com.android.server.telecom.tests;
 
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothHearingAid;
@@ -59,7 +60,7 @@ public class BluetoothDeviceManagerTest extends TelecomTestCase {
 
     BluetoothDeviceManager mBluetoothDeviceManager;
     BluetoothProfile.ServiceListener serviceListenerUnderTest;
-    BroadcastReceiver receiverUnderTest;
+    BluetoothStateReceiver receiverUnderTest;
 
     private BluetoothDevice device1;
     private BluetoothDevice device2;
@@ -90,8 +91,7 @@ public class BluetoothDeviceManagerTest extends TelecomTestCase {
                 serviceCaptor.capture(), eq(BluetoothProfile.HEADSET));
         serviceListenerUnderTest = serviceCaptor.getValue();
 
-        receiverUnderTest = new BluetoothStateReceiver(mBluetoothDeviceManager,
-                null /* route mgr not needed here */);
+        receiverUnderTest = new BluetoothStateReceiver(mBluetoothDeviceManager, mRouteManager);
 
         mBluetoothDeviceManager.setHeadsetServiceForTesting(mHeadsetProxy);
         mBluetoothDeviceManager.setHearingAidServiceForTesting(mBluetoothHearingAid);
@@ -198,15 +198,28 @@ public class BluetoothDeviceManagerTest extends TelecomTestCase {
 
     @SmallTest
     @Test
+    public void testHearingAidChangesIgnoredWhenNotInCall() {
+        receiverUnderTest.setIsInCall(false);
+        receiverUnderTest.onReceive(mContext,
+                buildConnectionActionIntent(BluetoothHeadset.STATE_CONNECTED, device2, true));
+        Intent activeDeviceChangedIntent =
+                new Intent(BluetoothHearingAid.ACTION_ACTIVE_DEVICE_CHANGED);
+        activeDeviceChangedIntent.putExtra(BluetoothDevice.EXTRA_DEVICE, device2);
+        receiverUnderTest.onReceive(mContext, activeDeviceChangedIntent);
+
+        verify(mRouteManager).onActiveDeviceChanged(device2, true);
+        verify(mRouteManager, never()).sendMessage(BluetoothRouteManager.BT_AUDIO_IS_ON);
+    }
+
+    @SmallTest
+    @Test
     public void testConnectDisconnectAudioHeadset() {
         receiverUnderTest.onReceive(mContext,
                 buildConnectionActionIntent(BluetoothHeadset.STATE_CONNECTED, device1, false));
-        when(mHeadsetProxy.setActiveDevice(nullable(BluetoothDevice.class))).thenReturn(true);
+        when(mAdapterProxy.setActiveDevice(nullable(BluetoothDevice.class), eq(BluetoothAdapter.ACTIVE_DEVICE_ALL))).thenReturn(true);
         mBluetoothDeviceManager.connectAudio(device1.getAddress());
-        verify(mHeadsetProxy).setActiveDevice(device1);
-        verify(mHeadsetProxy).connectAudio();
-        verify(mBluetoothHearingAid, never()).setActiveDevice(nullable(BluetoothDevice.class));
-
+        verify(mAdapterProxy).setActiveDevice(device1, BluetoothAdapter.ACTIVE_DEVICE_PHONE_CALL);
+        verify(mAdapterProxy, never()).setActiveDevice(nullable(BluetoothDevice.class), eq(BluetoothAdapter.ACTIVE_DEVICE_ALL));
         mBluetoothDeviceManager.disconnectAudio();
         verify(mHeadsetProxy).disconnectAudio();
     }
@@ -217,14 +230,14 @@ public class BluetoothDeviceManagerTest extends TelecomTestCase {
         receiverUnderTest.onReceive(mContext,
                 buildConnectionActionIntent(BluetoothHeadset.STATE_CONNECTED, device2, true));
         mBluetoothDeviceManager.connectAudio(device2.getAddress());
-        verify(mBluetoothHearingAid).setActiveDevice(device2);
+        verify(mAdapterProxy).setActiveDevice(device2, BluetoothAdapter.ACTIVE_DEVICE_ALL);
         verify(mHeadsetProxy, never()).connectAudio();
-        verify(mHeadsetProxy, never()).setActiveDevice(nullable(BluetoothDevice.class));
+        verify(mAdapterProxy, never()).setActiveDevice(nullable(BluetoothDevice.class), eq(BluetoothAdapter.ACTIVE_DEVICE_PHONE_CALL));
 
         when(mBluetoothHearingAid.getActiveDevices()).thenReturn(Arrays.asList(device2, null));
 
         mBluetoothDeviceManager.disconnectAudio();
-        verify(mBluetoothHearingAid).setActiveDevice(null);
+        verify(mAdapterProxy).setActiveDevice(null, BluetoothAdapter.ACTIVE_DEVICE_ALL);
         verify(mHeadsetProxy).disconnectAudio();
     }
 
