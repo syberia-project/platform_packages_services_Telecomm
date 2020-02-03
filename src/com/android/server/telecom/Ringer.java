@@ -116,7 +116,7 @@ public class Ringer {
         0, // No delay before starting
         500, // How long to vibrate
         200, // Delay
-        20, // How long to vibrate
+        70, // How long to vibrate
         720, // How long to wait before vibrating again
     };
 
@@ -132,11 +132,9 @@ public class Ringer {
 
     private static final long[] DA_DA_DZZZ_VIBRATION_PATTERN = {
         0, // No delay before starting
-        30, // How long to vibrate
+        70, // How long to vibrate
         80, // Delay
-        30, // How long to vibrate
-        80, // Delay
-        50,  // How long to vibrate
+        70, // How long to vibrate
         180, // Delay
         600,  // How long to vibrate
         1050, // How long to wait before vibrating again
@@ -148,20 +146,8 @@ public class Ringer {
         200, // Delay
         600, // How long to vibrate
         150, // Delay
-        20,  // How long to vibrate
+        60,  // How long to vibrate
         1050, // How long to wait before vibrating again
-    };
-
-    private static final int[] NINE_ELEMENTS_VIBRATION_AMPLITUDE = {
-        0, // No delay before starting
-        255, // Vibrate full amplitude
-        0, // No amplitude while waiting
-        255,
-        0,
-        255,
-        0,
-        255,
-        0,
     };
 
     private static final int[] SEVEN_ELEMENTS_VIBRATION_AMPLITUDE = {
@@ -866,7 +852,7 @@ public class Ringer {
                     break;
                 case 3:
                     mDefaultVibrationEffect = mVibrationEffectProxy.createWaveform(DA_DA_DZZZ_VIBRATION_PATTERN,
-                        NINE_ELEMENTS_VIBRATION_AMPLITUDE, REPEAT_SIMPLE_VIBRATION_AT);
+                        SEVEN_ELEMENTS_VIBRATION_AMPLITUDE, REPEAT_SIMPLE_VIBRATION_AT);
                     break;
                 case 4:
                     mDefaultVibrationEffect = mVibrationEffectProxy.createWaveform(DA_DZZZ_DA_VIBRATION_PATTERN,
