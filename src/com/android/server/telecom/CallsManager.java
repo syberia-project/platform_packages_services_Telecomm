@@ -90,7 +90,6 @@ import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
 import android.telecom.CallerInfo;
-import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.telecom.bluetooth.BluetoothRouteManager;
 import com.android.server.telecom.bluetooth.BluetoothStateReceiver;
@@ -173,6 +172,7 @@ public class CallsManager extends Call.ListenerBase
         void onDisconnectedTonePlaying(boolean isTonePlaying);
         void onConnectionTimeChanged(Call call);
         void onConferenceStateChanged(Call call, boolean isConference);
+        void onCdmaConferenceSwap(Call call);
     }
 
     /** Interface used to define the action which is executed delay under some condition. */
@@ -248,15 +248,15 @@ public class CallsManager extends Call.ListenerBase
 
     public static final String TELECOM_CALL_ID_PREFIX = "TC@";
 
-    // Maps call technologies in PhoneConstants to those in Analytics.
+    // Maps call technologies in TelephonyManager to those in Analytics.
     private static final Map<Integer, Integer> sAnalyticsTechnologyMap;
     static {
         sAnalyticsTechnologyMap = new HashMap<>(5);
-        sAnalyticsTechnologyMap.put(PhoneConstants.PHONE_TYPE_CDMA, Analytics.CDMA_PHONE);
-        sAnalyticsTechnologyMap.put(PhoneConstants.PHONE_TYPE_GSM, Analytics.GSM_PHONE);
-        sAnalyticsTechnologyMap.put(PhoneConstants.PHONE_TYPE_IMS, Analytics.IMS_PHONE);
-        sAnalyticsTechnologyMap.put(PhoneConstants.PHONE_TYPE_SIP, Analytics.SIP_PHONE);
-        sAnalyticsTechnologyMap.put(PhoneConstants.PHONE_TYPE_THIRD_PARTY,
+        sAnalyticsTechnologyMap.put(TelephonyManager.PHONE_TYPE_CDMA, Analytics.CDMA_PHONE);
+        sAnalyticsTechnologyMap.put(TelephonyManager.PHONE_TYPE_GSM, Analytics.GSM_PHONE);
+        sAnalyticsTechnologyMap.put(TelephonyManager.PHONE_TYPE_IMS, Analytics.IMS_PHONE);
+        sAnalyticsTechnologyMap.put(TelephonyManager.PHONE_TYPE_SIP, Analytics.SIP_PHONE);
+        sAnalyticsTechnologyMap.put(TelephonyManager.PHONE_TYPE_THIRD_PARTY,
                 Analytics.THIRD_PARTY_PHONE);
     }
 
@@ -973,6 +973,14 @@ public class CallsManager extends Call.ListenerBase
     }
 
     @Override
+    public void onCdmaConferenceSwap(Call call) {
+        // SWAP was executed on a CDMA conference
+        for (CallsManagerListener listener : mListeners) {
+            listener.onCdmaConferenceSwap(call);
+        }
+    }
+
+    @Override
     public void onIsVoipAudioModeChanged(Call call) {
         for (CallsManagerListener listener : mListeners) {
             listener.onIsVoipAudioModeChanged(call);
@@ -1286,6 +1294,11 @@ public class CallsManager extends Call.ListenerBase
         setIntentExtrasAndStartTime(call, extras);
         // TODO: Move this to be a part of addCall()
         call.addListener(this);
+
+        if (extras.containsKey(TelecomManager.EXTRA_CALL_DISCONNECT_MESSAGE)) {
+          String disconnectMessage = extras.getString(TelecomManager.EXTRA_CALL_DISCONNECT_MESSAGE);
+          Log.i(this, "processIncomingCallIntent Disconnect message " + disconnectMessage);
+        }
 
         boolean isHandoverAllowed = true;
         if (isHandover) {
@@ -2096,7 +2109,10 @@ public class CallsManager extends Call.ListenerBase
 
         // Auto-enable speakerphone if the originating intent specified to do so, if the call
         // is a video call, of if using speaker when docked
-        call.setStartWithSpeakerphoneOn(speakerphoneOn || useSpeakerForVideoCall
+        PhoneAccount account = mPhoneAccountRegistrar.getPhoneAccount(
+                call.getTargetPhoneAccount(), call.getInitiatingUser());
+        boolean allowVideo = account.hasCapabilities(PhoneAccount.CAPABILITY_VIDEO_CALLING);
+        call.setStartWithSpeakerphoneOn(speakerphoneOn || (useSpeakerForVideoCall && allowVideo)
                 || (useSpeakerWhenDocked && useSpeakerForDock));
         call.setVideoState(videoState);
 
@@ -2348,8 +2364,9 @@ public class CallsManager extends Call.ListenerBase
      * @return {@code true} if the speakerphone should automatically be enabled.
      */
     private static boolean isSpeakerEnabledForVideoCalls() {
-        return TelephonyProperties.videocall_audio_output().orElse(
-            PhoneConstants.AUDIO_OUTPUT_DEFAULT) == PhoneConstants.AUDIO_OUTPUT_ENABLE_SPEAKER;
+        return TelephonyProperties.videocall_audio_output()
+                .orElse(TelecomManager.AUDIO_OUTPUT_DEFAULT)
+                == TelecomManager.AUDIO_OUTPUT_ENABLE_SPEAKER;
     }
 
     /**
@@ -2863,7 +2880,8 @@ public class CallsManager extends Call.ListenerBase
      * @param disconnectCause The disconnect cause, see {@link android.telecom.DisconnectCause}.
      */
     void markCallAsDisconnected(Call call, DisconnectCause disconnectCause) {
-        if (call.getState() == CallState.SIMULATED_RINGING
+      int oldState = call.getState();
+      if (call.getState() == CallState.SIMULATED_RINGING
                 && disconnectCause.getCode() == DisconnectCause.REMOTE) {
             // If the remote end hangs up while in SIMULATED_RINGING, the call should
             // be marked as missed.
@@ -2871,6 +2889,12 @@ public class CallsManager extends Call.ListenerBase
         }
         call.setDisconnectCause(disconnectCause);
         setCallState(call, CallState.DISCONNECTED, "disconnected set explicitly");
+
+        if(oldState == CallState.NEW && disconnectCause.getCode() == DisconnectCause.MISSED) {
+            Log.i(this, "markCallAsDisconnected: logging missed call ");
+            mCallLogManager.logCall(call, Calls.MISSED_TYPE, true, null);
+        }
+
         // Emergency MO call is still pending and current active call is
         // disconnected succesfully. So initiating pending Emergency call
         // now and clearing both pending and Disconnectcalls.

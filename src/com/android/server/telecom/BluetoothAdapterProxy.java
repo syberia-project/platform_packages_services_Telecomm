@@ -17,6 +17,7 @@
 package com.android.server.telecom;
 
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 
@@ -37,6 +38,14 @@ public class BluetoothAdapterProxy {
         }
         return mBluetoothAdapter.getProfileProxy(context, listener, profile);
     }
+
+    public boolean setActiveDevice(BluetoothDevice device, int profiles) {
+        if (mBluetoothAdapter == null) {
+            return false;
+        }
+        return mBluetoothAdapter.setActiveDevice(device, profiles);
+    }
+
     public void closeProfileProxy(int profile, BluetoothProfile proxy) {
         if (mBluetoothAdapter == null) {
             return;
