@@ -41,6 +41,7 @@ import android.telecom.DisconnectCause;
 import android.telecom.GatewayInfo;
 import android.telecom.Log;
 import android.telecom.Logging.EventManager;
+import android.telecom.ParcelableConference;
 import android.telecom.ParcelableConnection;
 import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
@@ -52,13 +53,11 @@ import android.telephony.PhoneNumberUtils;
 import android.telephony.TelephonyManager;
 import android.telephony.emergency.EmergencyNumber;
 import android.text.TextUtils;
-import android.util.StatsLog;
 import android.widget.Toast;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telecom.IVideoProvider;
 import com.android.internal.util.Preconditions;
-import com.android.server.telecom.ui.DisconnectedCallNotifier;
 import com.android.server.telecom.ui.ToastFactory;
 
 import java.io.IOException;
@@ -326,6 +325,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     /** The handle with which to establish this call. */
     private Uri mHandle;
 
+    /** The participants with which to establish adhoc conference call */
+    private List<Uri> mParticipants;
     /**
      * The presentation requirements for the handle. See {@link TelecomManager} for valid values.
      */
@@ -625,15 +626,43 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             boolean isConference,
             ClockProxy clockProxy,
             ToastFactory toastFactory) {
+        this(callId, context, callsManager, lock, repository, phoneNumberUtilsAdapter,
+               handle, null, gatewayInfo, connectionManagerPhoneAccountHandle,
+               targetPhoneAccountHandle, callDirection, shouldAttachToExistingConnection,
+               isConference, clockProxy, toastFactory);
+
+    }
+
+    public Call(
+            String callId,
+            Context context,
+            CallsManager callsManager,
+            TelecomSystem.SyncRoot lock,
+            ConnectionServiceRepository repository,
+            PhoneNumberUtilsAdapter phoneNumberUtilsAdapter,
+            Uri handle,
+            List<Uri> participants,
+            GatewayInfo gatewayInfo,
+            PhoneAccountHandle connectionManagerPhoneAccountHandle,
+            PhoneAccountHandle targetPhoneAccountHandle,
+            int callDirection,
+            boolean shouldAttachToExistingConnection,
+            boolean isConference,
+            ClockProxy clockProxy,
+            ToastFactory toastFactory) {
+
         mId = callId;
         mConnectionId = callId;
-        mState = isConference ? CallState.ACTIVE : CallState.NEW;
+        mState = (isConference && callDirection != CALL_DIRECTION_INCOMING &&
+                callDirection != CALL_DIRECTION_OUTGOING) ?
+                CallState.ACTIVE : CallState.NEW;
         mContext = context;
         mCallsManager = callsManager;
         mLock = lock;
         mRepository = repository;
         mPhoneNumberUtilsAdapter = phoneNumberUtilsAdapter;
         setHandle(handle);
+        mParticipants = participants;
         mPostDialDigits = handle != null
                 ? PhoneNumberUtils.extractPostDialPortion(handle.getSchemeSpecificPart()) : "";
         mGatewayInfo = gatewayInfo;
@@ -656,14 +685,14 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      * @param handle The handle to dial.
      * @param gatewayInfo Gateway information to use for the call.
      * @param connectionManagerPhoneAccountHandle Account to use for the service managing the call.
-*         This account must be one that was registered with the
-*         {@link PhoneAccount#CAPABILITY_CONNECTION_MANAGER} flag.
+     * This account must be one that was registered with the
+     * {@link PhoneAccount#CAPABILITY_CONNECTION_MANAGER} flag.
      * @param targetPhoneAccountHandle Account information to use for the call. This account must be
-*         one that was registered with the {@link PhoneAccount#CAPABILITY_CALL_PROVIDER} flag.
+     * one that was registered with the {@link PhoneAccount#CAPABILITY_CALL_PROVIDER} flag.
      * @param callDirection one of CALL_DIRECTION_INCOMING, CALL_DIRECTION_OUTGOING,
-*         or CALL_DIRECTION_UNKNOWN
+     * or CALL_DIRECTION_UNKNOWN
      * @param shouldAttachToExistingConnection Set to true to attach the call to an existing
-*         connection, regardless of whether it's incoming or outgoing.
+     * connection, regardless of whether it's incoming or outgoing.
      * @param connectTimeMillis The connection time of the call.
      * @param clockProxy
      */
@@ -1036,8 +1065,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             }
             int statsdDisconnectCause = (newState == CallState.DISCONNECTED) ?
                     getDisconnectCause().getCode() : DisconnectCause.UNKNOWN;
-            StatsLog.write(StatsLog.CALL_STATE_CHANGED, newState, statsdDisconnectCause,
-                    isSelfManaged(), isExternalCall());
+            TelecomStatsLog.write(TelecomStatsLog.CALL_STATE_CHANGED, newState,
+                    statsdDisconnectCause, isSelfManaged(), isExternalCall());
         }
         return true;
     }
@@ -1079,6 +1108,16 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
     public Uri getHandle() {
         return mHandle;
+    }
+
+    public List<Uri> getParticipants() {
+        return mParticipants;
+    }
+
+    public boolean isAdhocConferenceCall() {
+        return mIsConference &&
+                (mCallDirection == CALL_DIRECTION_OUTGOING ||
+                mCallDirection == CALL_DIRECTION_INCOMING);
     }
 
     public void setPostDialDigits(String postDialDigits) {
@@ -1833,6 +1872,39 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     }
 
     @Override
+    public void handleCreateConferenceSuccess(
+            CallIdMapper idMapper,
+            ParcelableConference conference) {
+        Log.v(this, "handleCreateConferenceSuccessful %s", conference);
+        setTargetPhoneAccount(conference.getPhoneAccount());
+        setHandle(conference.getHandle(), conference.getHandlePresentation());
+
+        setConnectionCapabilities(conference.getConnectionCapabilities());
+        setConnectionProperties(conference.getConnectionProperties());
+        setVideoProvider(conference.getVideoProvider());
+        setVideoState(conference.getVideoState());
+        setRingbackRequested(conference.isRingbackRequested());
+        setStatusHints(conference.getStatusHints());
+        putExtras(SOURCE_CONNECTION_SERVICE, conference.getExtras());
+
+        switch (mCallDirection) {
+            case CALL_DIRECTION_INCOMING:
+                // Listeners (just CallsManager for now) will be responsible for checking whether
+                // the call should be blocked.
+                for (Listener l : mListeners) {
+                    l.onSuccessfulIncomingCall(this);
+                }
+                break;
+            case CALL_DIRECTION_OUTGOING:
+                for (Listener l : mListeners) {
+                    l.onSuccessfulOutgoingCall(this,
+                            getStateFromConnectionState(conference.getState()));
+                }
+                break;
+        }
+    }
+
+    @Override
     public void handleCreateConnectionSuccess(
             CallIdMapper idMapper,
             ParcelableConnection connection) {
@@ -1877,6 +1949,26 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                 for (Listener l : mListeners) {
                     l.onSuccessfulUnknownCall(this, getStateFromConnectionState(connection
                             .getState()));
+                }
+                break;
+        }
+    }
+
+    @Override
+    public void handleCreateConferenceFailure(DisconnectCause disconnectCause) {
+        clearConnectionService();
+        setDisconnectCause(disconnectCause);
+        mCallsManager.markCallAsDisconnected(this, disconnectCause);
+
+        switch (mCallDirection) {
+            case CALL_DIRECTION_INCOMING:
+                for (Listener listener : mListeners) {
+                    listener.onFailedIncomingCall(this);
+                }
+                break;
+            case CALL_DIRECTION_OUTGOING:
+                for (Listener listener : mListeners) {
+                    listener.onFailedOutgoingCall(this, disconnectCause);
                 }
                 break;
         }
@@ -2188,6 +2280,38 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     }
 
     /**
+     * Reject this Telecom call with the user-indicated reason.
+     * @param rejectReason The user-indicated reason fore rejecting the call.
+     */
+    public void reject(@android.telecom.Call.RejectReason int rejectReason) {
+        if (mState == CallState.SIMULATED_RINGING) {
+            // This handles the case where the user manually rejects a call that's in simulated
+            // ringing. Since the call is already active on the connectionservice side, we want to
+            // hangup, not reject.
+            // Since its simulated reason we can't pass along the reject reason.
+            setOverrideDisconnectCauseCode(new DisconnectCause(DisconnectCause.REJECTED));
+            if (mConnectionService != null) {
+                mConnectionService.disconnect(this);
+            } else {
+                Log.e(this, new NullPointerException(),
+                        "reject call failed due to null CS callId=%s", getId());
+            }
+            Log.addEvent(this, LogUtils.Events.REQUEST_REJECT);
+        } else if (isRinging("reject")) {
+            // Ensure video state history tracks video state at time of rejection.
+            mVideoStateHistory |= mVideoState;
+
+            if (mConnectionService != null) {
+                mConnectionService.rejectWithReason(this, rejectReason);
+            } else {
+                Log.e(this, new NullPointerException(),
+                        "reject call failed due to null CS callId=%s", getId());
+            }
+            Log.addEvent(this, LogUtils.Events.REQUEST_REJECT, rejectReason);
+        }
+    }
+
+    /**
      * Puts the call on hold if it is currently active.
      */
     @VisibleForTesting
@@ -2274,7 +2398,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         for (Listener l : mListeners) {
             l.onExtrasChanged(this, source, extras);
         }
-      
+
         // If mExtra shows that the call using Volte, record it with mWasVolte
         if (mExtras.containsKey(TelecomManager.EXTRA_CALL_NETWORK_TYPE) &&
             mExtras.get(TelecomManager.EXTRA_CALL_NETWORK_TYPE)
@@ -3402,8 +3526,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
     public void setIsUsingCallFiltering(boolean isUsingCallFiltering) {
         mIsUsingCallFiltering = isUsingCallFiltering;
-    }       
-          
+    }
+
     /**
      * Returns whether or not Volte call was used.
      *

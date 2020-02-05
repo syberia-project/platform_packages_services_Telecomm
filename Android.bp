@@ -1,3 +1,19 @@
+genrule {
+    name: "statslog-telecom-java-gen",
+    tools: ["stats-log-api-gen"],
+    cmd: "$(location stats-log-api-gen) --java $(out) --module telecom"
+        + " --javaPackage com.android.server.telecom --javaClass TelecomStatsLog",
+    out: ["com/android/server/telecom/TelecomStatsLog.java"],
+}
+
+filegroup {
+    name: "Telecom-srcs",
+    srcs: [
+        "src/**/*.java",
+        ":statslog-telecom-java-gen",
+    ],
+}
+
 // Build the Telecom service.
 android_app {
     name: "Telecom",
@@ -7,7 +23,7 @@ android_app {
       "ims-ext-common",
     ],
     srcs: [
-        "src/**/*.java",
+        ":Telecom-srcs",
         "proto/**/*.proto",
     ],
     resource_dirs: ["res"],
@@ -41,7 +57,7 @@ android_test {
     ],
     srcs: [
         "tests/src/**/*.java",
-        "src/**/*.java",
+        ":Telecom-srcs",
         "proto/**/*.proto",
     ],
     proto: {
