@@ -114,6 +114,7 @@ import com.android.server.telecom.ui.IncomingCallNotifier;
 import com.android.server.telecom.ui.ToastFactory;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1198,6 +1199,11 @@ public class CallsManager extends Call.ListenerBase
         mListeners.remove(listener);
     }
 
+    void processIncomingConference(PhoneAccountHandle phoneAccountHandle, Bundle extras) {
+        Log.d(this, "processIncomingCallConference");
+        processIncomingCallIntent(phoneAccountHandle, extras, true);
+    }
+
     /**
      * Starts the process to attach the call to a connection service.
      *
@@ -1206,6 +1212,11 @@ public class CallsManager extends Call.ListenerBase
      * @param extras The optional extras Bundle passed with the intent used for the incoming call.
      */
     void processIncomingCallIntent(PhoneAccountHandle phoneAccountHandle, Bundle extras) {
+        processIncomingCallIntent(phoneAccountHandle, extras, false);
+    }
+
+    void processIncomingCallIntent(PhoneAccountHandle phoneAccountHandle, Bundle extras,
+        boolean isConference) {
         Log.d(this, "processIncomingCallIntent");
         boolean isHandover = extras.getBoolean(TelecomManager.EXTRA_IS_HANDOVER);
         Uri handle = extras.getParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS);
@@ -1226,7 +1237,7 @@ public class CallsManager extends Call.ListenerBase
                 phoneAccountHandle,
                 Call.CALL_DIRECTION_INCOMING /* callDirection */,
                 false /* forceAttachToExistingConnection */,
-                false, /* isConference */
+                isConference, /* isConference */
                 mClockProxy,
                 mToastFactory);
 
@@ -1258,8 +1269,10 @@ public class CallsManager extends Call.ListenerBase
                     call.putExtras(Call.SOURCE_CONNECTION_SERVICE, dropCallExtras);
                 }
             }
-            if ((phoneAccount.getExtras() != null) &&
-                    phoneAccount.getExtras().getBoolean(
+
+            Bundle phoneAccountExtras = phoneAccount.getExtras();
+            if (phoneAccountExtras != null
+                    && phoneAccountExtras.getBoolean(
                             PhoneAccount.EXTRA_ALWAYS_USE_VOIP_AUDIO_MODE)) {
                 Log.d(this, "processIncomingCallIntent: defaulting to voip mode for call %s",
                         call.getId());
@@ -1346,14 +1359,22 @@ public class CallsManager extends Call.ListenerBase
 
         if (!isHandoverAllowed || (call.isSelfManaged() && !isIncomingCallPermitted(call,
                 call.getTargetPhoneAccount()))) {
-            notifyCreateConnectionFailed(phoneAccountHandle, call);
+            if (isConference) {
+                notifyCreateConferenceFailed(phoneAccountHandle, call);
+            } else {
+                notifyCreateConnectionFailed(phoneAccountHandle, call);
+            }
         } else if (isInEmergencyCall()) {
             // The incoming call is implicitly being rejected so the user does not get any incoming
             // call UI during an emergency call. In this case, log the call as missed instead of
             // rejected since the user did not explicitly reject.
             mCallLogManager.logCall(call, Calls.MISSED_TYPE,
                     true /*showNotificationForMissedCall*/, null /*CallFilteringResult*/);
-            notifyCreateConnectionFailed(phoneAccountHandle, call);
+            if (isConference) {
+                notifyCreateConferenceFailed(phoneAccountHandle, call);
+            } else {
+                notifyCreateConnectionFailed(phoneAccountHandle, call);
+            }
         } else {
             call.startCreateConnection(mPhoneAccountRegistrar);
         }
@@ -1441,7 +1462,18 @@ public class CallsManager extends Call.ListenerBase
             PhoneAccountHandle requestedAccountHandle,
             Bundle extras, UserHandle initiatingUser, Intent originalIntent,
             String callingPackage) {
+        final List<Uri> callee = new ArrayList<>();
+        callee.add(handle);
+        return startOutgoingCall(callee, requestedAccountHandle, extras, initiatingUser,
+                originalIntent, callingPackage, false);
+    }
+
+    private CompletableFuture<Call> startOutgoingCall(List<Uri> participants,
+            PhoneAccountHandle requestedAccountHandle,
+            Bundle extras, UserHandle initiatingUser, Intent originalIntent,
+            String callingPackage, boolean isConference) {
         boolean isReusedCall;
+        Uri handle = isConference ? Uri.parse("tel:conf-factory") : participants.get(0);
         Call call = reuseOutgoingCall(handle);
 
         PhoneAccount account =
@@ -1457,12 +1489,13 @@ public class CallsManager extends Call.ListenerBase
                     mConnectionServiceRepository,
                     mPhoneNumberUtilsAdapter,
                     handle,
+                    isConference ? participants : null,
                     null /* gatewayInfo */,
                     null /* connectionManagerPhoneAccount */,
                     null /* requestedAccountHandle */,
                     Call.CALL_DIRECTION_OUTGOING /* callDirection */,
                     false /* forceAttachToExistingConnection */,
-                    false, /* isConference */
+                    isConference, /* isConference */
                     mClockProxy,
                     mToastFactory);
             if ((extras != null) &&
@@ -1551,8 +1584,9 @@ public class CallsManager extends Call.ListenerBase
         CompletableFuture<List<PhoneAccountHandle>> accountsForCall =
                 CompletableFuture.completedFuture((Void) null).thenComposeAsync((x) ->
                                 findOutgoingCallPhoneAccount(requestedAccountHandle, handle,
-                                        VideoProfile.isVideo(finalVideoState), initiatingUser,
-                                        scheme, finalCall.isEmergencyCall()),
+                                        VideoProfile.isVideo(finalVideoState),
+                                        finalCall.isEmergencyCall(), initiatingUser,
+                                        isConference, scheme),
                         new LoggedHandlerExecutor(outgoingCallHandler, "CM.fOCP", mLock));
 
         // This is a block of code that executes after the list of potential phone accts has been
@@ -1620,8 +1654,13 @@ public class CallsManager extends Call.ListenerBase
                         } else {
                             // If the ongoing call is a managed call, we will prevent the outgoing
                             // call from dialing.
-                            notifyCreateConnectionFailed(
-                                    finalCall.getTargetPhoneAccount(), finalCall);
+                            if (isConference) {
+                                notifyCreateConferenceFailed(finalCall.getTargetPhoneAccount(),
+                                    finalCall);
+                            } else {
+                                notifyCreateConnectionFailed(
+                                        finalCall.getTargetPhoneAccount(), finalCall);
+                            }
                         }
                         Log.i(CallsManager.this, "Aborting call since there's no room");
                         return CompletableFuture.completedFuture(null);
@@ -1789,6 +1828,38 @@ public class CallsManager extends Call.ListenerBase
         return mLatestPostSelectionProcessingFuture;
     }
 
+    public void startConference(List<Uri> participants, Bundle clientExtras, String callingPackage,
+            UserHandle initiatingUser) {
+
+         if (clientExtras == null) {
+             clientExtras = new Bundle();
+         }
+
+         PhoneAccountHandle phoneAccountHandle = clientExtras.getParcelable(
+                 TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE);
+         CompletableFuture<Call> callFuture = startOutgoingCall(participants, phoneAccountHandle,
+                 clientExtras, initiatingUser, null/* originalIntent */, callingPackage,
+                 true/* isconference*/);
+
+         final boolean speakerphoneOn = clientExtras.getBoolean(
+                 TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE);
+         final int videoState = clientExtras.getInt(
+                 TelecomManager.EXTRA_START_CALL_WITH_VIDEO_STATE);
+
+         final Session logSubsession = Log.createSubsession();
+         callFuture.thenAccept((call) -> {
+             if (call != null) {
+                 Log.continueSession(logSubsession, "CM.pOGC");
+                 try {
+                     placeOutgoingCall(call, call.getHandle(), null/* gatewayInfo */,
+                             speakerphoneOn, videoState);
+                 } finally {
+                     Log.endSession();
+                 }
+             }
+         });
+    }
+
     /**
      * Performs call identification for an outgoing phone call.
      * @param theCall The outgoing call to perform identification.
@@ -1851,13 +1922,14 @@ public class CallsManager extends Call.ListenerBase
     public CompletableFuture<List<PhoneAccountHandle>> findOutgoingCallPhoneAccount(
             PhoneAccountHandle targetPhoneAccountHandle, Uri handle, boolean isVideo,
             boolean isEmergency, UserHandle initiatingUser) {
-        return findOutgoingCallPhoneAccount(targetPhoneAccountHandle, handle, isVideo,
-                initiatingUser, null, isEmergency);
+       return findOutgoingCallPhoneAccount(targetPhoneAccountHandle, handle, isVideo,
+               isEmergency, initiatingUser, false/* isConference */, null/* scheme */);
     }
 
     public CompletableFuture<List<PhoneAccountHandle>> findOutgoingCallPhoneAccount(
             PhoneAccountHandle targetPhoneAccountHandle, Uri handle, boolean isVideo,
-            UserHandle initiatingUser, String scheme, boolean isEmergency) {
+            boolean isEmergency, UserHandle initiatingUser, boolean isConference, String scheme) {
+
         if (isSelfManaged(targetPhoneAccountHandle, initiatingUser)) {
             return CompletableFuture.completedFuture(Arrays.asList(targetPhoneAccountHandle));
         }
@@ -1865,13 +1937,13 @@ public class CallsManager extends Call.ListenerBase
         List<PhoneAccountHandle> accounts;
         // Try to find a potential phone account, taking into account whether this is a video
         // call.
-        accounts = constructPossiblePhoneAccounts(handle, initiatingUser, isVideo, scheme,
-                isEmergency);
+        accounts = constructPossiblePhoneAccounts(handle, initiatingUser, isVideo, isEmergency,
+                isConference, scheme);
         if (isVideo && accounts.size() == 0) {
             // Placing a video call but no video capable accounts were found, so consider any
             // call capable accounts (we can fallback to audio).
             accounts = constructPossiblePhoneAccounts(handle, initiatingUser,
-                    false /* isVideo */, scheme, isEmergency);
+                    false /* isVideo */, isEmergency /* isEmergency */, isConference, scheme);
         }
         Log.v(this, "findOutgoingCallPhoneAccount: accounts = " + accounts);
 
@@ -2140,7 +2212,11 @@ public class CallsManager extends Call.ListenerBase
             // If the account has been set, proceed to place the outgoing call.
             // Otherwise the connection will be initiated when the account is set by the user.
             if (call.isSelfManaged() && !isOutgoingCallPermitted) {
-                notifyCreateConnectionFailed(call.getTargetPhoneAccount(), call);
+                if (call.isAdhocConferenceCall()) {
+                    notifyCreateConferenceFailed(call.getTargetPhoneAccount(), call);
+                } else {
+                    notifyCreateConnectionFailed(call.getTargetPhoneAccount(), call);
+                }
             } else {
                 if (call.isEmergencyCall()) {
                     // Drop any ongoing self-managed calls to make way for an emergency call.
@@ -2387,6 +2463,25 @@ public class CallsManager extends Call.ListenerBase
     }
 
     /**
+     * Instructs Telecom to reject the specified call. Intended to be invoked by the in-call
+     * app through {@link InCallAdapter} after Telecom notifies it of an incoming call followed by
+     * the user opting to reject said call.
+     */
+    @VisibleForTesting
+    public void rejectCall(Call call, @android.telecom.Call.RejectReason int rejectReason) {
+        if (!mCalls.contains(call)) {
+            Log.i(this, "Request to reject a non-existent call %s", call);
+        } else {
+            for (CallsManagerListener listener : mListeners) {
+                listener.onIncomingCallRejected(call, false /* rejectWithMessage */,
+                        null /* textMessage */);
+            }
+            call.reject(rejectReason);
+        }
+    }
+
+
+    /**
      * Instructs Telecom to play the specified DTMF tone within the specified call.
      *
      * @param digit The DTMF digit to play.
@@ -2568,11 +2663,12 @@ public class CallsManager extends Call.ListenerBase
     @VisibleForTesting
     public List<PhoneAccountHandle> constructPossiblePhoneAccounts(Uri handle, UserHandle user,
             boolean isVideo, boolean isEmergency) {
-        return constructPossiblePhoneAccounts(handle, user, isVideo, null, isEmergency);
+        return constructPossiblePhoneAccounts(handle, user, isVideo, isEmergency, false, null);
     }
 
     public List<PhoneAccountHandle> constructPossiblePhoneAccounts(Uri handle, UserHandle user,
-            boolean isVideo, String scheme, boolean isEmergency) {
+            boolean isVideo, boolean isEmergency, boolean isConference, String scheme) {
+
         if (handle == null) {
             return Collections.emptyList();
         }
@@ -2584,9 +2680,11 @@ public class CallsManager extends Call.ListenerBase
         // If we're specifically looking for video capable accounts, then include that capability,
         // otherwise specify no additional capability constraints. When handling the emergency call,
         // it also needs to find the phone accounts excluded by CAPABILITY_EMERGENCY_CALLS_ONLY.
+        int capabilities = isVideo ? PhoneAccount.CAPABILITY_VIDEO_CALLING : 0;
+        capabilities |= isConference ? PhoneAccount.CAPABILITY_ADHOC_CONFERENCE_CALLING : 0;
         List<PhoneAccountHandle> allAccounts =
                 mPhoneAccountRegistrar.getCallCapablePhoneAccounts(handle.getScheme(), false, user,
-                        isVideo ? PhoneAccount.CAPABILITY_VIDEO_CALLING : 0 /* any */,
+                        capabilities,
                         isEmergency ? 0 : PhoneAccount.CAPABILITY_EMERGENCY_CALLS_ONLY);
 
         // If no phone account is found, let's query emergency call only account again.
@@ -4534,6 +4632,29 @@ public class CallsManager extends Call.ListenerBase
             service.createConnectionFailed(call);
         }
     }
+
+    /**
+     * Notifies the {@link android.telecom.ConnectionService} associated with a
+     * {@link PhoneAccountHandle} that the attempt to create a new connection has failed.
+     *
+     * @param phoneAccountHandle The {@link PhoneAccountHandle}.
+     * @param call The {@link Call} which could not be added.
+     */
+    private void notifyCreateConferenceFailed(PhoneAccountHandle phoneAccountHandle, Call call) {
+        if (phoneAccountHandle == null) {
+            return;
+        }
+        ConnectionServiceWrapper service = mConnectionServiceRepository.getService(
+                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle());
+        if (service == null) {
+            Log.i(this, "Found no connection service.");
+            return;
+        } else {
+            call.setConnectionService(service);
+            service.createConferenceFailed(call);
+        }
+    }
+
 
     /**
      * Notifies the {@link android.telecom.ConnectionService} associated with a
