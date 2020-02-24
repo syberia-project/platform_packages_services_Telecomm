@@ -516,6 +516,12 @@ public class ParcelableCallUtils {
         Connection.CAPABILITY_ADD_PARTICIPANT,
         android.telecom.Call.Details.CAPABILITY_ADD_PARTICIPANT,
 
+        Connection.CAPABILITY_TRANSFER,
+        android.telecom.Call.Details.CAPABILITY_TRANSFER,
+
+        Connection.CAPABILITY_TRANSFER_CONSULTATIVE,
+        android.telecom.Call.Details.CAPABILITY_TRANSFER_CONSULTATIVE,
+
         Connection.CAPABILITY_SUPPORTS_RTT_REMOTE,
         android.telecom.Call.Details.CAPABILITY_SUPPORTS_RTT_REMOTE
     };
