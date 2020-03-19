@@ -1120,10 +1120,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                 mCallDirection == CALL_DIRECTION_INCOMING);
     }
 
-    public void setPostDialDigits(String postDialDigits) {
-        mPostDialDigits = postDialDigits;
-    }
-
     public String getPostDialDigits() {
         return mPostDialDigits;
     }
@@ -1996,9 +1992,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                     listener.onFailedUnknownCall(this);
                 }
                 break;
-            case CALL_DIRECTION_UNDEFINED:
-                mCallsManager.markCallAsRemoved(this);
-                break;
         }
     }
 
@@ -2559,14 +2552,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         } else {
             Log.addEvent(this, LogUtils.Events.SPLIT_FROM_CONFERENCE);
             mConnectionService.splitFromConference(this);
-        }
-    }
-
-    void addParticipantWithConference(String recipients) {
-        if (mConnectionService == null) {
-            Log.w(this, "conference requested on a call without a connection service.");
-        } else {
-            mConnectionService.addParticipantWithConference(this, recipients);
         }
     }
 

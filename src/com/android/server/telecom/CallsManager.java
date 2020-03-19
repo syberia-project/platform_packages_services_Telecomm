@@ -28,10 +28,6 @@ import static android.telecom.TelecomManager.MEDIUM_CALL_TIME_MS;
 import static android.telecom.TelecomManager.SHORT_CALL_TIME_MS;
 import static android.telecom.TelecomManager.VERY_SHORT_CALL_TIME_MS;
 
-import static com.android.internal.telephony.TelephonyIntents.EXTRA_DIAL_CONFERENCE_URI;
-import static com.android.internal.telephony.TelephonyIntents.ADD_PARTICIPANT_KEY;
-import static com.android.internal.telephony.TelephonyIntents.EXTRA_SKIP_SCHEMA_PARSING;
-
 import android.Manifest;
 import android.annotation.NonNull;
 import android.app.ActivityManager;
@@ -1507,11 +1503,6 @@ public class CallsManager extends Call.ListenerBase
                     isConference, /* isConference */
                     mClockProxy,
                     mToastFactory);
-            if ((extras != null) &&
-                    extras.getBoolean(EXTRA_DIAL_CONFERENCE_URI, false)) {
-                //Reset PostDialDigits with empty string for ConfURI call.
-                call.setPostDialDigits("");
-            }
             call.initAnalytics(callingPackage);
 
             // Ensure new calls related to self-managed calls/connections are set as such.  This
@@ -1561,27 +1552,6 @@ public class CallsManager extends Call.ListenerBase
             call.setVideoState(videoState);
         }
 
-        boolean isAddParticipant = ((extras != null) && (extras.getBoolean(
-                ADD_PARTICIPANT_KEY, false)));
-        boolean isSkipSchemaOrConfUri = ((extras != null) && (extras.getBoolean(
-                EXTRA_SKIP_SCHEMA_PARSING, false) ||
-                extras.getBoolean(EXTRA_DIAL_CONFERENCE_URI, false)));
-
-        if (isAddParticipant) {
-            String number = handle.getSchemeSpecificPart();
-            if (!isSkipSchemaOrConfUri) {
-                number = PhoneNumberUtils.stripSeparators(number);
-            }
-            addParticipant(number);
-            mInCallController.bringToForeground(false);
-            return CompletableFuture.completedFuture(null);
-        }
-        // Force tel scheme for ims conf uri/skip schema calls to avoid selection of sip accounts
-        String scheme = (isSkipSchemaOrConfUri? PhoneAccount.SCHEME_TEL: handle.getScheme());
-
-        Log.d(this, "startOutgoingCall :: isAddParticipant=" + isAddParticipant
-                + " isSkipSchemaOrConfUri=" + isSkipSchemaOrConfUri + " scheme=" + scheme);
-
         final int finalVideoState = videoState;
         final Call finalCall = call;
         Handler outgoingCallHandler = new Handler(Looper.getMainLooper());
@@ -1595,7 +1565,7 @@ public class CallsManager extends Call.ListenerBase
                                 findOutgoingCallPhoneAccount(requestedAccountHandle, handle,
                                         VideoProfile.isVideo(finalVideoState),
                                         finalCall.isEmergencyCall(), initiatingUser,
-                                        isConference, scheme),
+                                        isConference),
                         new LoggedHandlerExecutor(outgoingCallHandler, "CM.fOCP", mLock));
 
         // This is a block of code that executes after the list of potential phone accts has been
@@ -1932,12 +1902,12 @@ public class CallsManager extends Call.ListenerBase
             PhoneAccountHandle targetPhoneAccountHandle, Uri handle, boolean isVideo,
             boolean isEmergency, UserHandle initiatingUser) {
        return findOutgoingCallPhoneAccount(targetPhoneAccountHandle, handle, isVideo,
-               isEmergency, initiatingUser, false/* isConference */, null/* scheme */);
+               isEmergency, initiatingUser, false/* isConference */);
     }
 
     public CompletableFuture<List<PhoneAccountHandle>> findOutgoingCallPhoneAccount(
             PhoneAccountHandle targetPhoneAccountHandle, Uri handle, boolean isVideo,
-            boolean isEmergency, UserHandle initiatingUser, boolean isConference, String scheme) {
+            boolean isEmergency, UserHandle initiatingUser, boolean isConference) {
 
         if (isSelfManaged(targetPhoneAccountHandle, initiatingUser)) {
             return CompletableFuture.completedFuture(Arrays.asList(targetPhoneAccountHandle));
@@ -1947,12 +1917,12 @@ public class CallsManager extends Call.ListenerBase
         // Try to find a potential phone account, taking into account whether this is a video
         // call.
         accounts = constructPossiblePhoneAccounts(handle, initiatingUser, isVideo, isEmergency,
-                isConference, scheme);
+                isConference);
         if (isVideo && accounts.size() == 0) {
             // Placing a video call but no video capable accounts were found, so consider any
             // call capable accounts (we can fallback to audio).
             accounts = constructPossiblePhoneAccounts(handle, initiatingUser,
-                    false /* isVideo */, isEmergency /* isEmergency */, isConference, scheme);
+                    false /* isVideo */, isEmergency /* isEmergency */, isConference);
         }
         Log.v(this, "findOutgoingCallPhoneAccount: accounts = " + accounts);
 
@@ -2005,7 +1975,7 @@ public class CallsManager extends Call.ListenerBase
             // handle and verify it can be used.
             PhoneAccountHandle defaultPhoneAccountHandle =
                     mPhoneAccountRegistrar.getOutgoingPhoneAccountForScheme(
-                            scheme == null ? handle.getScheme() : scheme, initiatingUser);
+                            handle.getScheme(), initiatingUser);
             if (defaultPhoneAccountHandle != null &&
                     possibleAccounts.contains(defaultPhoneAccountHandle)) {
                 return Collections.singletonList(defaultPhoneAccountHandle);
@@ -2329,22 +2299,6 @@ public class CallsManager extends Call.ListenerBase
             markCallAsDisconnected(call, new DisconnectCause(DisconnectCause.CANCELED,
                     "No registered PhoneAccounts"));
             markCallAsRemoved(call);
-        }
-    }
-
-    /**
-     * Attempts to add participant in a call.
-     *
-     * @param number number to connect the call with.
-     */
-    private void addParticipant(String number) {
-        Log.i(this, "addParticipant number ="+number);
-        if (getForegroundCall() == null) {
-            // don't do anything if the call no longer exists
-            Log.i(this, "Canceling unknown call.");
-            return;
-        } else {
-            getForegroundCall().addParticipantWithConference(number);
         }
     }
 
@@ -2781,18 +2735,14 @@ public class CallsManager extends Call.ListenerBase
     @VisibleForTesting
     public List<PhoneAccountHandle> constructPossiblePhoneAccounts(Uri handle, UserHandle user,
             boolean isVideo, boolean isEmergency) {
-        return constructPossiblePhoneAccounts(handle, user, isVideo, isEmergency, false, null);
+        return constructPossiblePhoneAccounts(handle, user, isVideo, isEmergency, false);
     }
 
     public List<PhoneAccountHandle> constructPossiblePhoneAccounts(Uri handle, UserHandle user,
-            boolean isVideo, boolean isEmergency, boolean isConference, String scheme) {
+            boolean isVideo, boolean isEmergency, boolean isConference) {
 
         if (handle == null) {
             return Collections.emptyList();
-        }
-
-        if (scheme == null) {
-            scheme = handle.getScheme();
         }
 
         // If we're specifically looking for video capable accounts, then include that capability,
@@ -2809,7 +2759,8 @@ public class CallsManager extends Call.ListenerBase
         // That is happening while emergency account has capability CAPABILITY_EMERGENCY_CALLS_ONLY.
         if (isEmergency && allAccounts.size() == 0) {
             Log.v(this, "Try to find an emergency call only phone account");
-            allAccounts =  mPhoneAccountRegistrar.getEmergencyCallOnlyPhoneAccounts(scheme, user);
+            allAccounts =  mPhoneAccountRegistrar.
+                    getEmergencyCallOnlyPhoneAccounts(handle.getScheme(), user);
         }
 
         if (mMaxNumberOfSimultaneouslyActiveSims < 0) {
