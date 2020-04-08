@@ -396,6 +396,8 @@ public class CallsManager extends Call.ListenerBase
 
     private LinkedList<HandlerThread> mGraphHandlerThreads;
 
+    private boolean mHasActiveRttCall = false;
+
     // Two global variables used to handle the Emergency Call when there
     // is no room available for emergency call. Buffer the Emergency Call
     // in mPendingMOEmerCall until the Current Active call is disconnected
@@ -935,6 +937,13 @@ public class CallsManager extends Call.ListenerBase
             mDtmfLocalTonePlayer.stopTone(call);
         } else {
             Log.w(this, "onPostDialChar: invalid value %d", nextChar);
+        }
+    }
+
+    @Override
+    public void onConnectionPropertiesChanged(Call call, boolean didRttChange) {
+        if (didRttChange) {
+            updateHasActiveRttCall();
         }
     }
 
@@ -2660,10 +2669,10 @@ public class CallsManager extends Call.ListenerBase
                     Log.addEvent(call, LogUtils.Events.SWAP, "From " + activeCall.getId());
                 } else {
                     // This call does not support hold. If it is from a different connection
-                    // service, then disconnect it, otherwise invoke call.hold() and allow the
-                    // connection service to handle the situation.
-                    if (!PhoneAccountHandle.areFromSamePackage(activeCall.getTargetPhoneAccount(),
-                            call.getTargetPhoneAccount())) {
+                    // service or connection manager, then disconnect it, otherwise invoke
+                    // call.hold() and allow the connection service or connection manager to handle
+                    // the situation.
+                    if (!areFromSameSource(activeCall, call)) {
                         if (!activeCall.isEmergencyCall()) {
                             activeCall.disconnect("Swap to " + call.getId());
                         } else {
@@ -2929,11 +2938,11 @@ public class CallsManager extends Call.ListenerBase
                 activeCall.hold();
                 return true;
             } else if (supportsHold(activeCall)
-                    && PhoneAccountHandle.areFromSamePackage(activeCall.getTargetPhoneAccount(),
-                        call.getTargetPhoneAccount())) {
+                    && areFromSameSource(activeCall, call)) {
 
-                // Handle the case where the active call and the new call are from the same CS, and
-                // the currently active call supports hold but cannot currently be held.
+                // Handle the case where the active call and the new call are from the same CS or
+                // connection manager, and the currently active call supports hold but cannot
+                // currently be held.
                 // In this case we'll look for the other held call for this connectionService and
                 // disconnect it prior to holding the active call.
                 // E.g.
@@ -2955,10 +2964,9 @@ public class CallsManager extends Call.ListenerBase
                 return true;
             } else {
                 // This call does not support hold. If it is from a different connection
-                // service, then disconnect it, otherwise allow the connection service to
-                // figure out the right states.
-                if (!PhoneAccountHandle.areFromSamePackage(activeCall.getTargetPhoneAccount(),
-                        call.getTargetPhoneAccount())) {
+                // service or connection manager, then disconnect it, otherwise allow the connection
+                // service or connection manager to figure out the right states.
+                if (!areFromSameSource(activeCall, call)) {
                     Log.i(this, "holdActiveCallForNewCall: disconnecting %s so that %s can be "
                             + "made active.", activeCall.getId(), call.getId());
                     if (!activeCall.isEmergencyCall()) {
@@ -3378,6 +3386,9 @@ public class CallsManager extends Call.ListenerBase
                         Conference.CONNECT_TIME_NOT_SPECIFIED ? 0 :
                         parcelableConference.getConnectElapsedTimeMillis();
 
+        PhoneAccountHandle connectionMgr =
+                    mPhoneAccountRegistrar.getSimCallManagerFromHandle(phoneAccount,
+                            mCurrentUserHandle);
         Call call = new Call(
                 callId,
                 mContext,
@@ -3387,7 +3398,7 @@ public class CallsManager extends Call.ListenerBase
                 mPhoneNumberUtilsAdapter,
                 null /* handle */,
                 null /* gatewayInfo */,
-                null /* connectionManagerPhoneAccount */,
+                connectionMgr,
                 phoneAccount,
                 Call.CALL_DIRECTION_UNDEFINED /* callDirection */,
                 false /* forceAttachToExistingConnection */,
@@ -3502,6 +3513,8 @@ public class CallsManager extends Call.ListenerBase
                 SystemClock.elapsedRealtime());
 
         updateCanAddCall();
+        updateHasActiveRttCall();
+        updateExternalCallCanPullSupport();
         // onCallAdded for calls which immediately take the foreground (like the first call).
         for (CallsManagerListener listener : mListeners) {
             if (LogUtils.SYSTRACE_DEBUG) {
@@ -3515,7 +3528,8 @@ public class CallsManager extends Call.ListenerBase
         Trace.endSection();
     }
 
-    private void removeCall(Call call) {
+    @VisibleForTesting
+    public void removeCall(Call call) {
         Trace.beginSection("removeCall");
         Log.v(this, "removeCall(%s)", call);
 
@@ -3531,10 +3545,11 @@ public class CallsManager extends Call.ListenerBase
         }
 
         call.destroy();
-
+        updateExternalCallCanPullSupport();
         // Only broadcast changes for calls that are being tracked.
         if (shouldNotify) {
             updateCanAddCall();
+            updateHasActiveRttCall();
             for (CallsManagerListener listener : mListeners) {
                 if (LogUtils.SYSTRACE_DEBUG) {
                     Trace.beginSection(listener.getClass().toString() + " onCallRemoved");
@@ -3546,6 +3561,24 @@ public class CallsManager extends Call.ListenerBase
             }
         }
         Trace.endSection();
+    }
+
+    private void updateHasActiveRttCall() {
+        boolean hasActiveRttCall = hasActiveRttCall();
+        if (hasActiveRttCall != mHasActiveRttCall) {
+            Log.i(this, "updateHasActiveRttCall %s -> %s", mHasActiveRttCall, hasActiveRttCall);
+            AudioManager.setRttEnabled(hasActiveRttCall);
+            mHasActiveRttCall = hasActiveRttCall;
+        }
+    }
+
+    private boolean hasActiveRttCall() {
+        for (Call call : mCalls) {
+            if (call.isActive() && call.isRttCall()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -3589,6 +3622,7 @@ public class CallsManager extends Call.ListenerBase
                 // Only broadcast state change for calls that are being tracked.
                 if (mCalls.contains(call)) {
                     updateCanAddCall();
+                    updateHasActiveRttCall();
                     for (CallsManagerListener listener : mListeners) {
                         if (LogUtils.SYSTRACE_DEBUG) {
                             Trace.beginSection(listener.getClass().toString() +
@@ -4172,6 +4206,10 @@ public class CallsManager extends Call.ListenerBase
     Call createCallForExistingConnection(String callId, ParcelableConnection connection) {
         boolean isDowngradedConference = (connection.getConnectionProperties()
                 & Connection.PROPERTY_IS_DOWNGRADED_CONFERENCE) != 0;
+
+        PhoneAccountHandle connectionMgr =
+                mPhoneAccountRegistrar.getSimCallManagerFromHandle(connection.getPhoneAccount(),
+                        mCurrentUserHandle);
         Call call = new Call(
                 callId,
                 mContext,
@@ -4181,7 +4219,7 @@ public class CallsManager extends Call.ListenerBase
                 mPhoneNumberUtilsAdapter,
                 connection.getHandle() /* handle */,
                 null /* gatewayInfo */,
-                null /* connectionManagerPhoneAccount */,
+                connectionMgr,
                 connection.getPhoneAccount(), /* targetPhoneAccountHandle */
                 Call.getRemappedCallDirection(connection.getCallDirection()) /* callDirection */,
                 false /* forceAttachToExistingConnection */,
@@ -5186,6 +5224,18 @@ public class CallsManager extends Call.ListenerBase
     }
 
     /**
+     * Trigger a recalculation of support for CAPABILITY_CAN_PULL_CALL for external calls due to
+     * a possible emergency call being added/removed.
+     */
+    private void updateExternalCallCanPullSupport() {
+        boolean isInEmergencyCall = isInEmergencyCall();
+        // Remove the capability to pull an external call in the case that we are in an emergency
+        // call.
+        mCalls.stream().filter(Call::isExternalCall).forEach(
+                c->c.setIsPullExternalCallSupported(!isInEmergencyCall));
+    }
+
+    /**
      * Trigger display of an error message to the user; we do this outside of dialer for calls which
      * fail to be created and added to Dialer.
      * @param messageId The string resource id.
@@ -5214,6 +5264,32 @@ public class CallsManager extends Call.ListenerBase
         mCalls.stream()
                 .filter(c -> phoneAccount.getAccountHandle().equals(c.getTargetPhoneAccount()))
                 .forEach(c -> c.setVideoCallingSupportedByPhoneAccount(isVideoNowSupported));
+    }
+
+    /**
+     * Determines if two {@link Call} instances originated from either the same target
+     * {@link PhoneAccountHandle} or connection manager {@link PhoneAccountHandle}.
+     * @param call1 The first call
+     * @param call2 The second call
+     * @return {@code true} if both calls are from the same target or connection manager
+     * {@link PhoneAccountHandle}.
+     */
+    public static boolean areFromSameSource(@NonNull Call call1, @NonNull Call call2) {
+        PhoneAccountHandle call1ConnectionMgr = call1.getConnectionManagerPhoneAccount();
+        PhoneAccountHandle call2ConnectionMgr = call2.getConnectionManagerPhoneAccount();
+
+        if (call1ConnectionMgr != null && call2ConnectionMgr != null
+                && PhoneAccountHandle.areFromSamePackage(call1ConnectionMgr, call2ConnectionMgr)) {
+            // Both calls share the same connection manager package, so they are from the same
+            // source.
+            return true;
+        }
+
+        PhoneAccountHandle call1TargetAcct = call1.getTargetPhoneAccount();
+        PhoneAccountHandle call2TargetAcct = call2.getTargetPhoneAccount();
+        // Otherwise if the target phone account for both is the same package, they're the same
+        // source.
+        return PhoneAccountHandle.areFromSamePackage(call1TargetAcct, call2TargetAcct);
     }
 
     public LinkedList<HandlerThread> getGraphHandlerThreads() {

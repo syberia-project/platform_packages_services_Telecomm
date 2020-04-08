@@ -16,6 +16,7 @@
 
 package com.android.server.telecom;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -505,6 +506,15 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      */
     private boolean mIsVideoCallingSupportedByPhoneAccount = false;
 
+    /**
+     * Indicates whether or not this call can be pulled if it is an external call. If true, respect
+     * the Connection Capability set by the ConnectionService. If false, override the capability
+     * set and always remove the ability to pull this external call.
+     *
+     * See {@link #setIsPullExternalCallSupported(boolean)}
+     */
+    private boolean mIsPullExternalCallSupported = true;
+
     private PhoneNumberUtilsAdapter mPhoneNumberUtilsAdapter;
 
     /**
@@ -802,21 +812,18 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     /** {@inheritDoc} */
     @Override
     public String toString() {
-        String component = null;
-        if (mConnectionService != null && mConnectionService.getComponentName() != null) {
-            component = mConnectionService.getComponentName().flattenToShortString();
-        }
-
-        return String.format(Locale.US, "[%s, %s, %s, %s, %s, childs(%d), has_parent(%b), %s, %s]",
+        return String.format(Locale.US, "[Call id=%s, state=%s, tpac=%s, cmgr=%s, handle=%s, "
+                        + "vidst=%s, childs(%d), has_parent(%b), cap=%s, prop=%s]",
                 mId,
                 CallState.toString(mState),
-                component,
+                getTargetPhoneAccount(),
+                getConnectionManagerPhoneAccount(),
                 Log.piiHandle(mHandle),
                 getVideoStateDescription(getVideoState()),
                 getChildCalls().size(),
                 getParentCall() != null,
-                Connection.capabilitiesToString(getConnectionCapabilities()),
-                Connection.propertiesToString(getConnectionProperties()));
+                Connection.capabilitiesToStringShort(getConnectionCapabilities()),
+                Connection.propertiesToStringShort(getConnectionProperties()));
     }
 
     @Override
@@ -843,6 +850,10 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             s.append(")");
         } else {
             s.append("not set");
+        }
+        if (getConnectionManagerPhoneAccount() != null) {
+            s.append("\n\tConn mgr: ");
+            s.append(getConnectionManagerPhoneAccount());
         }
 
         s.append("\n\tTo address: ");
@@ -1449,6 +1460,26 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     }
 
     /**
+     * Determines if pulling this external call is supported. If it is supported, we will allow the
+     * {@link Connection#CAPABILITY_CAN_PULL_CALL} capability to be added to this call's
+     * capabilities. If it is not supported, we will strip this capability before sending this
+     * call's capabilities to the InCallService.
+     * @param isPullExternalCallSupported true, if pulling this external call is supported, false
+     *                                    otherwise.
+     */
+    public void setIsPullExternalCallSupported(boolean isPullExternalCallSupported) {
+        if (!isExternalCall()) return;
+        if (isPullExternalCallSupported == mIsPullExternalCallSupported) return;
+
+        Log.i(this, "setCanPullExternalCall: canPull=%b", isPullExternalCallSupported);
+
+        mIsPullExternalCallSupported = isPullExternalCallSupported;
+
+        // Use mConnectionCapabilities here to get the unstripped capabilities.
+        setConnectionCapabilities(mConnectionCapabilities, true /* force */);
+    }
+
+    /**
      * @return {@code true} if the {@link Call} locally supports video.
      */
     public boolean isLocallyVideoCapable() {
@@ -1641,7 +1672,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         mCreationTimeMillis = time;
     }
 
-    long getConnectTimeMillis() {
+    public long getConnectTimeMillis() {
         return mConnectTimeMillis;
     }
 
@@ -1654,7 +1685,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     }
 
     public int getConnectionCapabilities() {
-        return mConnectionCapabilities;
+        return stripUnsupportedCapabilities(mConnectionCapabilities);
     }
 
     int getConnectionProperties() {
@@ -1675,13 +1706,31 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                 l.onConnectionCapabilitiesChanged(this);
             }
 
-            int xorCaps = previousCapabilities ^ mConnectionCapabilities;
+            int strippedCaps = getConnectionCapabilities();
+            int xorCaps = previousCapabilities ^ strippedCaps;
             Log.addEvent(this, LogUtils.Events.CAPABILITY_CHANGE,
                     "Current: [%s], Removed [%s], Added [%s]",
-                    Connection.capabilitiesToStringShort(mConnectionCapabilities),
+                    Connection.capabilitiesToStringShort(strippedCaps),
                     Connection.capabilitiesToStringShort(previousCapabilities & xorCaps),
-                    Connection.capabilitiesToStringShort(mConnectionCapabilities & xorCaps));
+                    Connection.capabilitiesToStringShort(strippedCaps & xorCaps));
         }
+    }
+
+    /**
+     * For some states of Telecom, we need to modify this connection's capabilities:
+     * - A user should not be able to pull an external call during an emergency call, so
+     *   CAPABILITY_CAN_PULL_CALL should be removed until the emergency call ends.
+     * @param capabilities The original capabilities.
+     * @return The stripped capabilities.
+     */
+    private int stripUnsupportedCapabilities(int capabilities) {
+        if (!mIsPullExternalCallSupported) {
+            if ((capabilities |= Connection.CAPABILITY_CAN_PULL_CALL) > 0) {
+                capabilities &= ~Connection.CAPABILITY_CAN_PULL_CALL;
+                Log.i(this, "stripCapabilitiesBasedOnState: CAPABILITY_CAN_PULL_CALL removed.");
+            }
+        }
+        return capabilities;
     }
 
     public void setConnectionProperties(int connectionProperties) {
@@ -1729,6 +1778,12 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                 Log.v(this, "setConnectionProperties: external call changed isExternal = %b",
                         isExternal);
                 Log.addEvent(this, LogUtils.Events.IS_EXTERNAL, isExternal);
+                if (isExternal) {
+                    // If there is an ongoing emergency call, remove the ability for this call to
+                    // be pulled.
+                    boolean isInEmergencyCall = mCallsManager.isInEmergencyCall();
+                    setIsPullExternalCallSupported(!isInEmergencyCall);
+                }
                 for (Listener l : mListeners) {
                     l.onExternalCallChanged(this, isExternal);
                 }
@@ -2805,7 +2860,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      * ensure the InCall UI is updated with the change in parent.
      * @param parentCall The new parent for this call.
      */
-    void setChildOf(Call parentCall) {
+    public void setChildOf(Call parentCall) {
         if (parentCall != null && !parentCall.getChildCalls().contains(this)) {
             parentCall.addChildCall(this);
         }
@@ -2827,7 +2882,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
     @VisibleForTesting
     public boolean can(int capability) {
-        return (mConnectionCapabilities & capability) == capability;
+        return (getConnectionCapabilities() & capability) == capability;
     }
 
     @VisibleForTesting
@@ -2843,11 +2898,40 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             mConferenceLevelActiveCall = call;
             mChildCalls.add(call);
 
+            // When adding a child, we will potentially adjust the various times from the calls
+            // based on the children being added.  This ensures the parent of the conference has a
+            // connect time reflective of all the children added.
+            maybeAdjustConnectTime(call);
+
             Log.addEvent(this, LogUtils.Events.ADD_CHILD, call);
 
             for (Listener l : mListeners) {
                 l.onChildrenChanged(this);
             }
+        }
+    }
+
+    /**
+     * Potentially adjust the connect and creation time of this call based on another one.
+     * Ensures that if the other call has an earlier connect time that we adjust the connect time of
+     * this call to match.
+     * <p>
+     * This is important for conference calls; as we add children to the conference we need to
+     * ensure that earlier connect time is reflected on the conference.  In the past this
+     * was just done in {@link ParcelableCallUtils} when parceling the calls to the UI, but that
+     * approach would not reflect the right time on the parent as children disconnect.
+     *
+     * @param call the call to potentially use to adjust connect time.
+     */
+    private void maybeAdjustConnectTime(@NonNull Call call) {
+        long childConnectTimeMillis = call.getConnectTimeMillis();
+        long currentConnectTimeMillis = getConnectTimeMillis();
+        // Conference calls typically have a 0 connect time, so we will replace the current connect
+        // time if its zero also.
+        if (childConnectTimeMillis != 0
+                && (currentConnectTimeMillis == 0
+                || childConnectTimeMillis < getConnectTimeMillis())) {
+            setConnectTimeMillis(childConnectTimeMillis);
         }
     }
 
