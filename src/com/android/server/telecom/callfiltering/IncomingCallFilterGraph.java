@@ -126,6 +126,12 @@ public class IncomingCallFilterGraph {
                     mFinished = true;
                     mHandlerThread.quit();
                 }
+                for (CallFilter filter : mFiltersList) {
+                    // unbind timed out call screening service
+                    if (filter instanceof CallScreeningServiceFilter) {
+                        ((CallScreeningServiceFilter) filter).unbindCallScreeningService();
+                    }
+                }
             }
         }.prepare(), mTimeoutsAdapter.getCallScreeningTimeoutMillis(mContext.getContentResolver()));
     }
@@ -148,6 +154,8 @@ public class IncomingCallFilterGraph {
                 CompletableFuture.completedFuture(input);
         PostFilterTask postFilterTask = new PostFilterTask(filter);
 
+        // TODO: improve these filter logging names to be more reflective of the filters that are
+        // executing
         startFuture.thenComposeAsync(filter::startFilterLookup,
                 new LoggedHandlerExecutor(mHandler, "ICFG.sF", null))
                 .thenApplyAsync(postFilterTask::whenDone,
