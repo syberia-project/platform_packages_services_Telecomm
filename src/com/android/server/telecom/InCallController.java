@@ -1012,7 +1012,7 @@ public class InCallController extends CallsManagerListenerBase {
             // The call was regular but it is now external.  We must now remove it from any
             // InCallServices which do not support external calls.
             // Remove the call by sending a call update indicating the call was disconnected.
-            Log.i(this, "Removing external call %", call);
+            Log.i(this, "Removing external call %s", call);
             for (Map.Entry<InCallServiceInfo, IInCallService> entry : mInCallServices.entrySet()) {
                 InCallServiceInfo info = entry.getKey();
                 if (info.isExternalCallsSupported()) {
@@ -1499,7 +1499,6 @@ public class InCallController extends CallsManagerListenerBase {
      * @return True if we successfully connected.
      */
     private boolean onConnected(InCallServiceInfo info, IBinder service) {
-        Trace.beginSection("onConnected: " + info.getComponentName());
         Log.i(this, "onConnected to %s", info.getComponentName());
 
         IInCallService inCallService = IInCallService.Stub.asInterface(service);
@@ -1554,7 +1553,6 @@ public class InCallController extends CallsManagerListenerBase {
         }
         mBindingFuture.complete(true);
         Log.i(this, "%s calls sent to InCallService.", numCallsSent);
-        Trace.endSection();
         return true;
     }
 
