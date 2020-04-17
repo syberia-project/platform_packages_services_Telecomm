@@ -473,25 +473,22 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                     && mContext.checkCallingOrSelfPermission(MODIFY_PHONE_STATE)
                             != PackageManager.PERMISSION_GRANTED) {
                 Log.w(this, "addConferenceCall from caller without permission!");
-                parcelableConference = new ParcelableConference(
+                parcelableConference = new ParcelableConference.Builder(
                         parcelableConference.getPhoneAccount(),
-                        parcelableConference.getState(),
-                        parcelableConference.getConnectionCapabilities(),
-                        parcelableConference.getConnectionProperties(),
-                        parcelableConference.getConnectionIds(),
-                        parcelableConference.getVideoProvider(),
-                        parcelableConference.getVideoState(),
-                        0 /* connectTimeMillis */,
-                        0 /* connectElapsedRealTime */,
-                        parcelableConference.getStatusHints(),
-                        parcelableConference.getExtras(),
-                        parcelableConference.getHandle(),
-                        parcelableConference.getHandlePresentation(),
-                        "" /* callerDisplayName */,
-                        TelecomManager.PRESENTATION_UNKNOWN /* callerDisplayNamePresentation */,
-                        parcelableConference.getDisconnectCause(),
-                        parcelableConference.isRingbackRequested()
-                        );
+                        parcelableConference.getState())
+                        .setConnectionCapabilities(parcelableConference.getConnectionCapabilities())
+                        .setConnectionProperties(parcelableConference.getConnectionProperties())
+                        .setConnectionIds(parcelableConference.getConnectionIds())
+                        .setVideoAttributes(parcelableConference.getVideoProvider(),
+                                parcelableConference.getVideoState())
+                        .setStatusHints(parcelableConference.getStatusHints())
+                        .setExtras(parcelableConference.getExtras())
+                        .setAddress(parcelableConference.getHandle(),
+                                parcelableConference.getHandlePresentation())
+                        // no caller display name set.
+                        .setDisconnectCause(parcelableConference.getDisconnectCause())
+                        .setRingbackRequested(parcelableConference.isRingbackRequested())
+                        .build();
             }
 
             long token = Binder.clearCallingIdentity();
@@ -782,12 +779,6 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                 Session.Info sessionInfo) {
             Log.startSession(sessionInfo, "CSW.sA");
 
-            if (mContext.checkCallingOrSelfPermission(MODIFY_PHONE_STATE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                Log.w(this, "setAddress from caller without permission.");
-                return;
-            }
-
             long token = Binder.clearCallingIdentity();
             try {
                 synchronized (mLock) {
@@ -871,12 +862,6 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             if (callingPhoneAccountHandle != null) {
                 mAppOpsManager.checkPackage(Binder.getCallingUid(),
                         callingPhoneAccountHandle.getComponentName().getPackageName());
-            }
-
-            if (mContext.checkCallingOrSelfPermission(MODIFY_PHONE_STATE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                Log.w(this, "addExistingConnection from caller without permission!");
-                return;
             }
 
             long token = Binder.clearCallingIdentity();
@@ -1085,6 +1070,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             if (mContext.checkCallingOrSelfPermission(MODIFY_PHONE_STATE)
                     != PackageManager.PERMISSION_GRANTED) {
                 Log.w(this, "setConferenceState from caller without permission.");
+                Log.endSession();
                 return;
             }
 
@@ -1094,6 +1080,35 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                     Call call = mCallIdMapper.getCall(callId);
                     if (call != null) {
                         call.setConferenceState(isConference);
+                    }
+                }
+            } catch (Throwable t) {
+                Log.e(ConnectionServiceWrapper.this, t, "");
+                throw t;
+            } finally {
+                Binder.restoreCallingIdentity(token);
+                Log.endSession();
+            }
+        }
+
+        @Override
+        public void setCallDirection(String callId, int direction, Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, "CSW.sCD");
+
+            if (mContext.checkCallingOrSelfPermission(MODIFY_PHONE_STATE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                Log.w(this, "setCallDirection from caller without permission.");
+                Log.endSession();
+                return;
+            }
+
+            long token = Binder.clearCallingIdentity();
+            try {
+                synchronized (mLock) {
+                    logIncoming("setCallDirection %s %d", callId, direction);
+                    Call call = mCallIdMapper.getCall(callId);
+                    if (call != null) {
+                        call.setCallDirection(Call.getRemappedCallDirection(direction));
                     }
                 }
             } catch (Throwable t) {
