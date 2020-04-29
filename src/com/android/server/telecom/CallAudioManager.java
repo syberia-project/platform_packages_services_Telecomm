@@ -16,12 +16,9 @@
 
 package com.android.server.telecom;
 
-import static com.android.internal.telephony.TelephonyIntents.EXTRA_DIAL_CONFERENCE_URI;
-
 import android.annotation.NonNull;
 import android.media.IAudioService;
 import android.media.ToneGenerator;
-import android.os.Bundle;
 import android.telecom.CallAudioState;
 import android.telecom.Log;
 import android.telecom.VideoProfile;
@@ -125,10 +122,9 @@ public class CallAudioManager extends CallsManagerListenerBase {
             playToneForDisconnectedCall(call);
         }
 
-        if (!isIntermediateConfURICallDisconnected(call)) {
-            onCallLeavingState(call, oldState);
-            onCallEnteringState(call, newState);
-        }
+
+        onCallLeavingState(call, oldState);
+        onCallEnteringState(call, newState);
     }
 
     @Override
@@ -376,19 +372,6 @@ public class CallAudioManager extends CallsManagerListenerBase {
                 CallAudioRouteStateMachine.TOGGLE_MUTE);
     }
 
-    private boolean isIntermediateConfURICallDisconnected(Call disconnectedCall) {
-        if(disconnectedCall.getState() != CallState.DISCONNECTED) {
-            return false;
-        }
-        Bundle callExtra = (disconnectedCall != null) ? disconnectedCall.getIntentExtras() : null;
-        final boolean isMoConfURICallDisconnected = (callExtra == null) ? false :
-                !disconnectedCall.isIncoming() &&
-                callExtra.getBoolean(EXTRA_DIAL_CONFERENCE_URI, false);
-        Log.i(this, "is ConfURI call disconnected = " + isMoConfURICallDisconnected + " call = "
-                + disconnectedCall);
-        return isMoConfURICallDisconnected && !mCallsManager.hasOnlyDisconnectedCalls();
-    }
-
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
     public void onRingerModeChange() {
         mCallAudioModeStateMachine.sendMessageWithArgs(
@@ -504,6 +487,11 @@ public class CallAudioManager extends CallsManagerListenerBase {
                 CallAudioRouteStateMachine.SWITCH_FOCUS, focusState);
     }
 
+    public void notifyAudioOperationsComplete() {
+        mCallAudioModeStateMachine.sendMessageWithArgs(
+                CallAudioModeStateMachine.AUDIO_OPERATIONS_COMPLETE, makeArgsForModeStateMachine());
+    }
+
     @VisibleForTesting
     public CallAudioRouteStateMachine getCallAudioRouteStateMachine() {
         return mCallAudioRouteStateMachine;
@@ -588,7 +576,6 @@ public class CallAudioManager extends CallsManagerListenerBase {
                 onCallLeavingActiveDialingOrConnecting();
                 break;
             case CallState.DIALING:
-            case CallState.NEW:
                 stopRingbackForCall(call);
                 onCallLeavingActiveDialingOrConnecting();
                 break;

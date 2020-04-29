@@ -1,9 +1,5 @@
 package com.android.server.telecom;
 
-import static com.android.internal.telephony.TelephonyIntents.ADD_PARTICIPANT_KEY;
-import static com.android.internal.telephony.TelephonyIntents.EXTRA_DIAL_CONFERENCE_URI;
-import static com.android.internal.telephony.TelephonyIntents.EXTRA_SKIP_SCHEMA_PARSING;
-
 import com.android.server.telecom.components.ErrorDialogActivity;
 
 import android.content.Context;
@@ -118,12 +114,9 @@ public class CallIntentProcessor {
         Uri handle = intent.getData();
         String scheme = handle.getScheme();
         String uriString = handle.getSchemeSpecificPart();
-        boolean isSkipSchemaParsing = intent.getBooleanExtra(
-                EXTRA_SKIP_SCHEMA_PARSING, false);
-        Log.d(CallIntentProcessor.class, "isSkipSchemaParsing = " + isSkipSchemaParsing);
 
         // Ensure sip URIs dialed using TEL scheme get converted to SIP scheme.
-        if (PhoneAccount.SCHEME_TEL.equals(scheme) && PhoneNumberUtils.isUriNumber(uriString) && !isSkipSchemaParsing) {
+        if (PhoneAccount.SCHEME_TEL.equals(scheme) && PhoneNumberUtils.isUriNumber(uriString)) {
             handle = Uri.fromParts(PhoneAccount.SCHEME_SIP, uriString, null);
         }
 
@@ -136,23 +129,6 @@ public class CallIntentProcessor {
         }
         if (clientExtras == null) {
             clientExtras = new Bundle();
-        }
-        if (isSkipSchemaParsing) {
-            clientExtras.putBoolean(EXTRA_SKIP_SCHEMA_PARSING,
-                    isSkipSchemaParsing);
-            handle = Uri.fromParts(PhoneAccount.SCHEME_TEL, handle.toString(), null);
-        }
-        boolean isConferenceUri = intent.getBooleanExtra(
-                EXTRA_DIAL_CONFERENCE_URI, false);
-        Log.d(CallIntentProcessor.class, "isConferenceUri = "+isConferenceUri);
-        if (isConferenceUri) {
-            clientExtras.putBoolean(EXTRA_DIAL_CONFERENCE_URI, isConferenceUri);
-        }
-        boolean isAddParticipant = intent.getBooleanExtra(
-                ADD_PARTICIPANT_KEY, false);
-        Log.d(CallIntentProcessor.class, "isAddparticipant = "+isAddParticipant);
-        if (isAddParticipant) {
-            clientExtras.putBoolean(ADD_PARTICIPANT_KEY, isAddParticipant);
         }
         if (intent.hasExtra(TelecomManager.EXTRA_START_CALL_WITH_RTT)) {
             boolean isStartRttCall = intent.getBooleanExtra(
@@ -199,15 +175,22 @@ public class CallIntentProcessor {
                     "processOutgoingCallIntent: skip initiating user check");
         }
 
-        Log.d(CallIntentProcessor.class, " processOutgoingCallIntent handle = " + handle
-                + ", scheme = " + scheme + ", uriString = " + uriString
-                + ", isSkipSchemaParsing = " + isSkipSchemaParsing
-                + ", isAddParticipant = " + isAddParticipant);
-
         UserHandle initiatingUser = intent.getParcelableExtra(KEY_INITIATING_USER);
 
         boolean isPrivilegedDialer = defaultDialerCache.isDefaultOrSystemDialer(callingPackage,
                 initiatingUser.getIdentifier());
+
+        NewOutgoingCallIntentBroadcaster broadcaster = new NewOutgoingCallIntentBroadcaster(
+                context, callsManager, intent, callsManager.getPhoneNumberUtilsAdapter(),
+                isPrivilegedDialer, defaultDialerCache);
+
+        // If the broadcaster comes back with an immediate error, disconnect and show a dialog.
+        NewOutgoingCallIntentBroadcaster.CallDisposition disposition = broadcaster.evaluateCall();
+        if (disposition.disconnectCause != DisconnectCause.NOT_DISCONNECTED) {
+            callsManager.clearPendingMOEmergencyCall();
+            showErrorDialog(context, disposition.disconnectCause);
+            return;
+        }
 
         // Send to CallsManager to ensure the InCallUI gets kicked off before the broadcast returns
         CompletableFuture<Call> callFuture = callsManager
@@ -219,35 +202,12 @@ public class CallIntentProcessor {
             if (call != null) {
                 Log.continueSession(logSubsession, "CIP.sNOCI");
                 try {
-                    sendNewOutgoingCallIntent(context, call, callsManager, intent,
-                            isPrivilegedDialer, defaultDialerCache);
+                    broadcaster.processCall(call, disposition);
                 } finally {
                     Log.endSession();
                 }
             }
         });
-    }
-
-    static void sendNewOutgoingCallIntent(Context context, Call call, CallsManager callsManager,
-            Intent intent, boolean isPrivilegedDialer, DefaultDialerCache defaultDialerCache) {
-        // Asynchronous calls should not usually be made inside a BroadcastReceiver because once
-        // onReceive is complete, the BroadcastReceiver's process runs the risk of getting
-        // killed if memory is scarce. However, this is OK here because the entire Telecom
-        // process will be running throughout the duration of the phone call and should never
-        // be killed.
-        NewOutgoingCallIntentBroadcaster broadcaster = new NewOutgoingCallIntentBroadcaster(
-                context, callsManager, call, intent, callsManager.getPhoneNumberUtilsAdapter(),
-                isPrivilegedDialer, defaultDialerCache);
-
-        // If the broadcaster comes back with an immediate error, disconnect and show a dialog.
-        NewOutgoingCallIntentBroadcaster.CallDisposition disposition = broadcaster.evaluateCall();
-        if (disposition.disconnectCause != DisconnectCause.NOT_DISCONNECTED) {
-            callsManager.clearPendingMOEmergencyCall();
-            disconnectCallAndShowErrorDialog(context, call, disposition.disconnectCause);
-            return;
-        }
-
-        broadcaster.processCall(disposition);
     }
 
     /**
@@ -321,9 +281,7 @@ public class CallIntentProcessor {
         callsManager.addNewUnknownCall(phoneAccountHandle, intent.getExtras());
     }
 
-    private static void disconnectCallAndShowErrorDialog(
-            Context context, Call call, int errorCode) {
-        call.disconnect();
+    private static void showErrorDialog(Context context, int errorCode) {
         final Intent errorIntent = new Intent(context, ErrorDialogActivity.class);
         int errorMessageId = -1;
         switch (errorCode) {

@@ -419,6 +419,7 @@ public class CallAudioRouteStateMachine extends StateMachine {
                 case SWITCH_FOCUS:
                     if (msg.arg1 == NO_FOCUS) {
                         reinitialize();
+                        mCallAudioManager.notifyAudioOperationsComplete();
                     }
                     return HANDLED;
                 default:
@@ -616,6 +617,7 @@ public class CallAudioRouteStateMachine extends StateMachine {
                 case SWITCH_FOCUS:
                     if (msg.arg1 == NO_FOCUS) {
                         reinitialize();
+                        mCallAudioManager.notifyAudioOperationsComplete();
                     }
                     return HANDLED;
                 default:
@@ -861,6 +863,7 @@ public class CallAudioRouteStateMachine extends StateMachine {
                         // Only disconnect SCO audio here instead of routing away from BT entirely.
                         mBluetoothRouteManager.disconnectSco();
                         reinitialize();
+                        mCallAudioManager.notifyAudioOperationsComplete();
                     } else if (msg.arg1 == RINGING_FOCUS
                             && !mBluetoothRouteManager.isInbandRingingEnabled()) {
                         setBluetoothOff();
@@ -952,6 +955,7 @@ public class CallAudioRouteStateMachine extends StateMachine {
                 case SWITCH_FOCUS:
                     if (msg.arg1 == NO_FOCUS) {
                         reinitialize();
+                        mCallAudioManager.notifyAudioOperationsComplete();
                     } else if (msg.arg1 == ACTIVE_FOCUS) {
                         setBluetoothOn(null);
                     }
@@ -1175,6 +1179,7 @@ public class CallAudioRouteStateMachine extends StateMachine {
                 case SWITCH_FOCUS:
                     if (msg.arg1 == NO_FOCUS) {
                         reinitialize();
+                        mCallAudioManager.notifyAudioOperationsComplete();
                     }
                     return HANDLED;
                 default:
@@ -1602,10 +1607,13 @@ public class CallAudioRouteStateMachine extends StateMachine {
             BluetoothDevice connectedDevice =
                     mBluetoothRouteManager.getBluetoothAudioConnectedDevice();
             if (address == null && connectedDevice != null) {
-                // null means connect to any device, so don't bother reconnecting. Also, send a
-                // message to ourselves telling us that BT audio is already connected.
-                Log.i(this, "HFP audio already on. Skipping connecting.");
+                // null means connect to any device, so if we're already connected to some device,
+                // that means we can just tell ourselves that it's connected.
+                // Do still try to connect audio though, so that BluetoothRouteManager knows that
+                // there's an active call.
+                Log.i(this, "Bluetooth audio already on.");
                 sendInternalMessage(BT_AUDIO_CONNECTED);
+                mBluetoothRouteManager.connectBluetoothAudio(connectedDevice.getAddress());
                 return;
             }
             if (connectedDevice == null || !Objects.equals(address, connectedDevice.getAddress())) {

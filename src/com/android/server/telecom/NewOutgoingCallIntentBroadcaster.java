@@ -16,14 +16,12 @@
 
 package com.android.server.telecom;
 
-import static com.android.internal.telephony.TelephonyIntents.EXTRA_DIAL_CONFERENCE_URI;
-import static com.android.internal.telephony.TelephonyIntents.EXTRA_SKIP_SCHEMA_PARSING;
-
 import android.app.AppOpsManager;
 
 import android.app.Activity;
 import android.app.BroadcastOptions;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
@@ -75,7 +73,7 @@ public class NewOutgoingCallIntentBroadcaster {
     public static final String EXTRA_GATEWAY_URI = "com.android.phone.extra.GATEWAY_URI";
 
     private final CallsManager mCallsManager;
-    private final Call mCall;
+    private Call mCall;
     private final Intent mIntent;
     private final Context mContext;
     private final PhoneNumberUtilsAdapter mPhoneNumberUtilsAdapter;
@@ -102,12 +100,11 @@ public class NewOutgoingCallIntentBroadcaster {
     }
 
     @VisibleForTesting
-    public NewOutgoingCallIntentBroadcaster(Context context, CallsManager callsManager, Call call,
+    public NewOutgoingCallIntentBroadcaster(Context context, CallsManager callsManager,
             Intent intent, PhoneNumberUtilsAdapter phoneNumberUtilsAdapter,
             boolean isDefaultPhoneApp, DefaultDialerCache defaultDialerCache) {
         mContext = context;
         mCallsManager = callsManager;
-        mCall = call;
         mIntent = intent;
         mPhoneNumberUtilsAdapter = phoneNumberUtilsAdapter;
         mIsDefaultOrSystemPhoneApp = isDefaultPhoneApp;
@@ -163,24 +160,16 @@ public class NewOutgoingCallIntentBroadcaster {
                                         " ignore the broadcast Call %s", mCall);
                         return;
                     }
-                    boolean isSkipSchemaParsing = mIntent.getBooleanExtra(
-                            EXTRA_SKIP_SCHEMA_PARSING, false);
-                    Uri resultHandleUri = null;
+
+                    // TODO: Remove the assumption that phone numbers are either SIP or TEL.
+                    // This does not impact self-managed ConnectionServices as they do not use the
+                    // NewOutgoingCallIntentBroadcaster.
+                    Uri resultHandleUri = Uri.fromParts(
+                            mPhoneNumberUtilsAdapter.isUriNumber(resultNumber) ?
+                                    PhoneAccount.SCHEME_SIP : PhoneAccount.SCHEME_TEL,
+                            resultNumber, null);
+
                     Uri originalUri = mIntent.getData();
-                    if (isSkipSchemaParsing) {
-                        // resultNumber does not have the schema present
-                        // hence use originalUri which is same as handle
-                        resultHandleUri = Uri.fromParts(PhoneAccount.SCHEME_TEL,
-                                originalUri.toString(), null);
-                    } else {
-                        // TODO: Remove the assumption that phone numbers are either SIP or TEL.
-                        // This does not impact self-managed ConnectionServices as they do not use the
-                        // NewOutgoingCallIntentBroadcaster.
-                        resultHandleUri = Uri.fromParts(
-                                mPhoneNumberUtilsAdapter.isUriNumber(resultNumber) ?
-                                        PhoneAccount.SCHEME_SIP : PhoneAccount.SCHEME_TEL,
-                                resultNumber, null);
-                    }
 
                     if (originalUri.getSchemeSpecificPart().equals(resultNumber)) {
                         Log.v(this, "Call number unmodified after" +
@@ -328,27 +317,21 @@ public class NewOutgoingCallIntentBroadcaster {
     private String getNumberFromCallIntent(Intent intent) {
         String number;
         number = mPhoneNumberUtilsAdapter.getNumberFromIntent(intent, mContext);
-        boolean isConferenceUri = intent.getBooleanExtra(
-                EXTRA_DIAL_CONFERENCE_URI, false);
-        if (!isConferenceUri && TextUtils.isEmpty(number)) {
+        if (TextUtils.isEmpty(number)) {
             Log.w(this, "Empty number obtained from the call intent.");
             return null;
         }
 
-        boolean isSkipSchemaParsing = intent.getBooleanExtra(
-                EXTRA_SKIP_SCHEMA_PARSING, false);
-
         boolean isUriNumber = mPhoneNumberUtilsAdapter.isUriNumber(number);
-        Log.v(this,"processIntent isConferenceUri: " + isConferenceUri +
-                " isSkipSchemaParsing = " + isSkipSchemaParsing);
-        if (!isUriNumber && !isConferenceUri && !isSkipSchemaParsing) {
+        if (!isUriNumber) {
             number = mPhoneNumberUtilsAdapter.convertKeypadLettersToDigits(number);
             number = mPhoneNumberUtilsAdapter.stripSeparators(number);
         }
         return number;
     }
 
-    public void processCall(CallDisposition disposition) {
+    public void processCall(Call call, CallDisposition disposition) {
+        mCall = call;
         if (disposition.callImmediately) {
             boolean speakerphoneOn = mIntent.getBooleanExtra(
                     TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE, false);
@@ -389,12 +372,7 @@ public class NewOutgoingCallIntentBroadcaster {
         if (disposition.sendBroadcast) {
             UserHandle targetUser = mCall.getInitiatingUser();
             Log.i(this, "Sending NewOutgoingCallBroadcast for %s to %s", mCall, targetUser);
-            boolean isSkipSchemaParsing = mIntent.getBooleanExtra(
-                    EXTRA_SKIP_SCHEMA_PARSING, false);
-            String number = isSkipSchemaParsing
-                ? disposition.callingAddress.toString()
-                : disposition.number;
-            broadcastIntent(mIntent, number,
+            broadcastIntent(mIntent, disposition.number,
                     !disposition.callImmediately && !callRedirectionWithService, targetUser);
         }
     }
@@ -517,7 +495,9 @@ public class NewOutgoingCallIntentBroadcaster {
 
     private void launchSystemDialer(Uri handle) {
         Intent systemDialerIntent = new Intent();
-        systemDialerIntent.setComponent(mDefaultDialerCache.getSystemDialerComponent());
+        systemDialerIntent.setComponent(
+                new ComponentName(mDefaultDialerCache.getSystemDialerApplication(),
+                    mContext.getResources().getString(R.string.dialer_default_class)));
         systemDialerIntent.setAction(Intent.ACTION_DIAL);
         systemDialerIntent.setData(handle);
         systemDialerIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
