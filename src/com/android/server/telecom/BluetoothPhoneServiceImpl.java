@@ -287,6 +287,19 @@ public class BluetoothPhoneServiceImpl {
             }
         }
 
+       @Override
+        public boolean isCsCallInProgress()       {
+            boolean isCsCall = false;
+            Call activeCall = mCallsManager.getActiveCall();
+            if (mNumActiveCalls > 0) {
+                isCsCall =  ((activeCall != null) &&
+                 !(activeCall.hasProperty(Connection.PROPERTY_HIGH_DEF_AUDIO) ||
+                 activeCall.hasProperty(Connection.PROPERTY_WIFI)));
+            }
+            Log.i(TAG, "isCsCallInProgress: "+ isCsCall);
+            return isCsCall;
+        }
+
        /**isHighDefCallInProgress
         * Returns true  if there is any Call is in Progress with High Definition
         *               quality
@@ -896,15 +909,6 @@ public class BluetoothPhoneServiceImpl {
             boolean sendDialingFirst = mBluetoothCallState != bluetoothCallState &&
                     bluetoothCallState == CALL_STATE_ALERTING;
 
-            if (numActiveCalls > 0) {
-                    Log.i(TAG, "updateHeadsetWithCallState: Call active");
-                    boolean isCsCall = ((activeCall != null) &&
-                            !(activeCall.hasProperty(Connection.PROPERTY_HIGH_DEF_AUDIO) ||
-                            activeCall.hasProperty(Connection.PROPERTY_WIFI)));
-                    final Intent intent = new Intent(TelecomManager.ACTION_CALL_TYPE);
-                    intent.putExtra(TelecomManager.EXTRA_CALL_TYPE_CS, isCsCall);
-                    mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
-            }
             mOldHeldCall = heldCall;
             mNumActiveCalls = numActiveCalls;
             mNumChildrenOfActiveCall = numChildrenOfActiveCall;
