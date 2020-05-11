@@ -70,6 +70,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ConnectionServiceWrapper extends ServiceBinder implements
         ConnectionServiceFocusManager.ConnectionServiceFocus {
 
+    private static final String TELECOM_ABBREVIATION = "cast";
+
     private final class Adapter extends IConnectionServiceAdapter.Stub {
 
         @Override
@@ -1233,7 +1235,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                             connectionRequest,
                             call.shouldAttachToExistingConnection(),
                             call.isUnknown(),
-                            Log.getExternalSession());
+                            Log.getExternalSession(TELECOM_ABBREVIATION));
 
                 } catch (RemoteException e) {
                     Log.e(this, e, "Failure to createConference -- %s", getComponentName());
@@ -1322,7 +1324,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                             connectionRequest,
                             call.shouldAttachToExistingConnection(),
                             call.isUnknown(),
-                            Log.getExternalSession());
+                            Log.getExternalSession(TELECOM_ABBREVIATION));
 
                 } catch (RemoteException e) {
                     Log.e(this, e, "Failure to createConnection -- %s", getComponentName());
@@ -1369,7 +1371,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                                         callId,
                                         false),
                                 call.isIncoming(),
-                                Log.getExternalSession());
+                                Log.getExternalSession(TELECOM_ABBREVIATION));
                         call.setDisconnectCause(new DisconnectCause(DisconnectCause.CANCELED));
                         call.disconnect();
                     } catch (RemoteException e) {
@@ -1415,7 +1417,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                                         callId,
                                         false),
                                 call.isIncoming(),
-                                Log.getExternalSession());
+                                Log.getExternalSession(TELECOM_ABBREVIATION));
                         call.setDisconnectCause(new DisconnectCause(DisconnectCause.CANCELED));
                         call.disconnect();
                     } catch (RemoteException e) {
@@ -1453,7 +1455,9 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                                         call.getIntentExtras(),
                                         call.getVideoState(),
                                         callId,
-                                        false), reason, Log.getExternalSession());
+                                        false),
+                                reason,
+                                Log.getExternalSession(TELECOM_ABBREVIATION));
                     } catch (RemoteException e) {
                     }
                 }
@@ -1481,7 +1485,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                     try {
                         mServiceInterface.handoverComplete(
                                 callId,
-                                Log.getExternalSession());
+                                Log.getExternalSession(TELECOM_ABBREVIATION));
                     } catch (RemoteException e) {
                     }
                 }
@@ -1507,7 +1511,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("abort")) {
             try {
                 logOutgoing("abort %s", callId);
-                mServiceInterface.abort(callId, Log.getExternalSession());
+                mServiceInterface.abort(callId, Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1521,7 +1525,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("silence")) {
             try {
                 logOutgoing("silence %s", callId);
-                mServiceInterface.silence(callId, Log.getExternalSession());
+                mServiceInterface.silence(callId, Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1533,7 +1537,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("hold")) {
             try {
                 logOutgoing("hold %s", callId);
-                mServiceInterface.hold(callId, Log.getExternalSession());
+                mServiceInterface.hold(callId, Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1545,7 +1549,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("unhold")) {
             try {
                 logOutgoing("unhold %s", callId);
-                mServiceInterface.unhold(callId, Log.getExternalSession());
+                mServiceInterface.unhold(callId, Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1559,7 +1563,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             try {
                 logOutgoing("onCallAudioStateChanged %s %s", callId, audioState);
                 mServiceInterface.onCallAudioStateChanged(callId, audioState,
-                        Log.getExternalSession());
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1571,7 +1575,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("disconnect")) {
             try {
                 logOutgoing("disconnect %s", callId);
-                mServiceInterface.disconnect(callId, Log.getExternalSession());
+                mServiceInterface.disconnect(callId, Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1584,9 +1588,10 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             try {
                 logOutgoing("answer %s %d", callId, videoState);
                 if (VideoProfile.isAudioOnly(videoState)) {
-                    mServiceInterface.answer(callId, Log.getExternalSession());
+                    mServiceInterface.answer(callId, Log.getExternalSession(TELECOM_ABBREVIATION));
                 } else {
-                    mServiceInterface.answerVideo(callId, videoState, Log.getExternalSession());
+                    mServiceInterface.answerVideo(callId, videoState,
+                            Log.getExternalSession(TELECOM_ABBREVIATION));
                 }
             } catch (RemoteException e) {
             }
@@ -1599,7 +1604,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("deflect")) {
             try {
                 logOutgoing("deflect %s", callId);
-                mServiceInterface.deflect(callId, address, Log.getExternalSession());
+                mServiceInterface.deflect(callId, address,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1614,9 +1620,10 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
 
                 if (rejectWithMessage && call.can(
                         Connection.CAPABILITY_CAN_SEND_RESPONSE_VIA_CONNECTION)) {
-                    mServiceInterface.rejectWithMessage(callId, message, Log.getExternalSession());
+                    mServiceInterface.rejectWithMessage(callId, message,
+                            Log.getExternalSession(TELECOM_ABBREVIATION));
                 } else {
-                    mServiceInterface.reject(callId, Log.getExternalSession());
+                    mServiceInterface.reject(callId, Log.getExternalSession(TELECOM_ABBREVIATION));
                 }
             } catch (RemoteException e) {
             }
@@ -1630,7 +1637,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             try {
                 logOutgoing("rejectReason %s, %d", callId, rejectReason);
 
-                mServiceInterface.rejectWithReason(callId, rejectReason, Log.getExternalSession());
+                mServiceInterface.rejectWithReason(callId, rejectReason,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1643,7 +1651,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             try {
                 logOutgoing("transfer %s", callId);
                 mServiceInterface.transfer(callId, number, isConfirmationRequired,
-                        Log.getExternalSession());
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1657,7 +1665,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             try {
                 logOutgoing("consultativeTransfer %s", callId);
                 mServiceInterface.consultativeTransfer(callId, otherCallId,
-                        Log.getExternalSession());
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1669,7 +1677,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("playDtmfTone")) {
             try {
                 logOutgoing("playDtmfTone %s %c", callId, digit);
-                mServiceInterface.playDtmfTone(callId, digit, Log.getExternalSession());
+                mServiceInterface.playDtmfTone(callId, digit,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1681,7 +1690,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("stopDtmfTone")) {
             try {
                 logOutgoing("stopDtmfTone %s", callId);
-                mServiceInterface.stopDtmfTone(callId, Log.getExternalSession());
+                mServiceInterface.stopDtmfTone(callId,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException e) {
             }
         }
@@ -1728,7 +1738,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("onPostDialContinue")) {
             try {
                 logOutgoing("onPostDialContinue %s %b", callId, proceed);
-                mServiceInterface.onPostDialContinue(callId, proceed, Log.getExternalSession());
+                mServiceInterface.onPostDialContinue(callId, proceed,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1740,7 +1751,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && otherCallId != null && isServiceValid("conference")) {
             try {
                 logOutgoing("conference %s %s", callId, otherCallId);
-                mServiceInterface.conference(callId, otherCallId, Log.getExternalSession());
+                mServiceInterface.conference(callId, otherCallId,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1751,7 +1763,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("splitFromConference")) {
             try {
                 logOutgoing("splitFromConference %s", callId);
-                mServiceInterface.splitFromConference(callId, Log.getExternalSession());
+                mServiceInterface.splitFromConference(callId,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1762,7 +1775,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("mergeConference")) {
             try {
                 logOutgoing("mergeConference %s", callId);
-                mServiceInterface.mergeConference(callId, Log.getExternalSession());
+                mServiceInterface.mergeConference(callId,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1773,7 +1787,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("swapConference")) {
             try {
                 logOutgoing("swapConference %s", callId);
-                mServiceInterface.swapConference(callId, Log.getExternalSession());
+                mServiceInterface.swapConference(callId,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1785,7 +1800,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             try {
                 logOutgoing("addConferenceParticipants %s", callId);
                 mServiceInterface.addConferenceParticipants(callId, participants,
-                        Log.getExternalSession());
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1797,7 +1812,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("pullExternalCall")) {
             try {
                 logOutgoing("pullExternalCall %s", callId);
-                mServiceInterface.pullExternalCall(callId, Log.getExternalSession());
+                mServiceInterface.pullExternalCall(callId,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1808,7 +1824,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("sendCallEvent")) {
             try {
                 logOutgoing("sendCallEvent %s %s", callId, event);
-                mServiceInterface.sendCallEvent(callId, event, extras, Log.getExternalSession());
+                mServiceInterface.sendCallEvent(callId, event, extras,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1819,7 +1836,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("onExtrasChanged")) {
             try {
                 logOutgoing("onExtrasChanged %s %s", callId, extras);
-                mServiceInterface.onExtrasChanged(callId, extras, Log.getExternalSession());
+                mServiceInterface.onExtrasChanged(callId, extras,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1830,7 +1848,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("startRtt")) {
             try {
                 logOutgoing("startRtt: %s %s %s", callId, fromInCall, toInCall);
-                mServiceInterface.startRtt(callId, fromInCall, toInCall, Log.getExternalSession());
+                mServiceInterface.startRtt(callId, fromInCall, toInCall,
+                        Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1841,7 +1860,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         if (callId != null && isServiceValid("stopRtt")) {
             try {
                 logOutgoing("stopRtt: %s", callId);
-                mServiceInterface.stopRtt(callId, Log.getExternalSession());
+                mServiceInterface.stopRtt(callId, Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1854,7 +1873,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             try {
                 logOutgoing("respondToRttRequest: %s %s %s", callId, fromInCall, toInCall);
                 mServiceInterface.respondToRttUpgradeRequest(
-                        callId, fromInCall, toInCall, Log.getExternalSession());
+                        callId, fromInCall, toInCall, Log.getExternalSession(TELECOM_ABBREVIATION));
             } catch (RemoteException ignored) {
             }
         }
@@ -1893,7 +1912,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             @Override
             public void onSuccess() {
                 try {
-                    mServiceInterface.connectionServiceFocusLost(Log.getExternalSession());
+                    mServiceInterface.connectionServiceFocusLost(
+                            Log.getExternalSession(TELECOM_ABBREVIATION));
                 } catch (RemoteException ignored) {
                     Log.d(this, "failed to inform the focus lost event");
                 }
@@ -1911,7 +1931,8 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             @Override
             public void onSuccess() {
                 try {
-                    mServiceInterface.connectionServiceFocusGained(Log.getExternalSession());
+                    mServiceInterface.connectionServiceFocusGained(
+                            Log.getExternalSession(TELECOM_ABBREVIATION));
                 } catch (RemoteException ignored) {
                     Log.d(this, "failed to inform the focus gained event");
                 }
@@ -2003,12 +2024,14 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
     }
 
     private void logIncoming(String msg, Object... params) {
-        Log.d(this, "ConnectionService -> Telecom[" + mComponentName.flattenToShortString() + "]: "
+        // Keep these as debug; the incoming logging is traced on a package level through the
+        // session logging.
+        Log.d(this, "CS -> TC[" + Log.getPackageAbbreviation(mComponentName) + "]: "
                 + msg, params);
     }
 
     private void logOutgoing(String msg, Object... params) {
-        Log.d(this, "Telecom -> ConnectionService[" + mComponentName.flattenToShortString() + "]: "
+        Log.d(this, "TC -> CS[" + Log.getPackageAbbreviation(mComponentName) + "]: "
                 + msg, params);
     }
 
