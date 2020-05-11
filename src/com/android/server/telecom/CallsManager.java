@@ -2602,7 +2602,11 @@ public class CallsManager extends Call.ListenerBase
             Log.w(this, "Unknown call (%s) asked to disconnect", call);
         } else {
             mLocallyDisconnectingCalls.add(call);
+            int previousState = call.getState();
             call.disconnect();
+            for (CallsManagerListener listener : mListeners) {
+                listener.onCallStateChanged(call, previousState, call.getState());
+            }
             // Cancel any of the outgoing call futures if they're still around.
             if (mPendingCallConfirm != null && !mPendingCallConfirm.isDone()) {
                 mPendingCallConfirm.complete(null);
@@ -3605,7 +3609,8 @@ public class CallsManager extends Call.ListenerBase
             return;
         }
         int oldState = call.getState();
-        Log.i(this, "setCallState %s -> %s, call: %s", CallState.toString(oldState),
+        Log.i(this, "setCallState %s -> %s, call: %s",
+                CallState.toString(call.getParcelableCallState()),
                 CallState.toString(newState), call);
         if (newState != oldState) {
             // If the call switches to held state while a DTMF tone is playing, stop the tone to
