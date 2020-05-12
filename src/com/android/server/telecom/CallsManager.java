@@ -3613,6 +3613,10 @@ public class CallsManager extends Call.ListenerBase
             if (newState == CallState.ON_HOLD && call.isDtmfTonePlaying()) {
                 stopDtmfTone(call);
             }
+            // Maybe start a vibration for MO call.
+            if (newState == CallState.ACTIVE && !call.isIncoming() && !call.isUnknown()) {
+                mRinger.startVibratingForOutgoingCallActive();
+            }
 
             // Unfortunately, in the telephony world the radio is king. So if the call notifies
             // us that the call is in a particular state, we allow it even if it doesn't make
