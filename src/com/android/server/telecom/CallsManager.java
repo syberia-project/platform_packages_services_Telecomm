@@ -2078,7 +2078,8 @@ public class CallsManager extends Call.ListenerBase
                             + "callId=%s, callRedirectionAppName=%s",
                     call.getId(), callRedirectionApp);
 
-            showRedirectionDialog(call.getId());
+            showRedirectionDialog(call.getId(),
+                    mRoleManagerAdapter.getApplicationLabelForPackageName(callRedirectionApp));
         } else {
             call.setTargetPhoneAccount(phoneAccountHandle);
             placeOutgoingCall(call, handle, gatewayInfo, speakerphoneOn, videoState);
@@ -2097,7 +2098,7 @@ public class CallsManager extends Call.ListenerBase
      * content on the screen.
      * @param callId The ID of the call to show the redirection dialog for.
      */
-    private void showRedirectionDialog(@NonNull String callId) {
+    private void showRedirectionDialog(@NonNull String callId, @NonNull CharSequence appName) {
         AlertDialog confirmDialog = new AlertDialog.Builder(mContext).create();
         LayoutInflater layoutInflater = LayoutInflater.from(mContext);
         View dialogView = layoutInflater.inflate(R.layout.call_redirection_confirm_dialog, null);
@@ -2119,8 +2120,8 @@ public class CallsManager extends Call.ListenerBase
         });
 
         Button buttonSecondLine = (Button) dialogView.findViewById(R.id.buttonSecondLine);
-        buttonSecondLine.setText(mContext.getText(
-                R.string.alert_place_outgoing_call_with_redirection));
+        buttonSecondLine.setText(mContext.getString(
+                R.string.alert_place_outgoing_call_with_redirection, appName));
         buttonSecondLine.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2239,7 +2240,10 @@ public class CallsManager extends Call.ListenerBase
         // is a video call, of if using speaker when docked
         PhoneAccount account = mPhoneAccountRegistrar.getPhoneAccount(
                 call.getTargetPhoneAccount(), call.getInitiatingUser());
-        boolean allowVideo = account.hasCapabilities(PhoneAccount.CAPABILITY_VIDEO_CALLING);
+        boolean allowVideo = false;
+        if (account != null) {
+            allowVideo = account.hasCapabilities(PhoneAccount.CAPABILITY_VIDEO_CALLING);
+        }
         call.setStartWithSpeakerphoneOn(speakerphoneOn || (useSpeakerForVideoCall && allowVideo)
                 || (useSpeakerWhenDocked && useSpeakerForDock));
         call.setVideoState(videoState);
@@ -3393,6 +3397,8 @@ public class CallsManager extends Call.ListenerBase
                         Conference.CONNECT_TIME_NOT_SPECIFIED ? 0 :
                         parcelableConference.getConnectElapsedTimeMillis();
 
+        int callDirection = Call.getRemappedCallDirection(parcelableConference.getCallDirection());
+
         PhoneAccountHandle connectionMgr =
                     mPhoneAccountRegistrar.getSimCallManagerFromHandle(phoneAccount,
                             mCurrentUserHandle);
@@ -3407,7 +3413,7 @@ public class CallsManager extends Call.ListenerBase
                 null /* gatewayInfo */,
                 connectionMgr,
                 phoneAccount,
-                Call.CALL_DIRECTION_UNDEFINED /* callDirection */,
+                callDirection,
                 false /* forceAttachToExistingConnection */,
                 true /* isConference */,
                 connectTime,
@@ -4248,13 +4254,8 @@ public class CallsManager extends Call.ListenerBase
         call.setCallerDisplayName(connection.getCallerDisplayName(),
                 connection.getCallerDisplayNamePresentation());
         call.addListener(this);
+        call.putExtras(Call.SOURCE_CONNECTION_SERVICE, connection.getExtras());
 
-        // In case this connection was added via a ConnectionManager, keep track of the original
-        // Connection ID as created by the originating ConnectionService.
-        Bundle extras = connection.getExtras();
-        if (extras != null && extras.containsKey(Connection.EXTRA_ORIGINAL_CONNECTION_ID)) {
-            call.setOriginalConnectionId(extras.getString(Connection.EXTRA_ORIGINAL_CONNECTION_ID));
-        }
         Log.i(this, "createCallForExistingConnection: %s", connection);
         Call parentCall = null;
         if (!TextUtils.isEmpty(connection.getParentCallId())) {
