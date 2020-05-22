@@ -87,7 +87,7 @@ public final class TelephonyUtil {
 
     public static boolean isLocalEmergencyNumber(String address) {
         IExtTelephony mIExtTelephony =
-            IExtTelephony.Stub.asInterface(ServiceManager.getService("extphone"));
+            IExtTelephony.Stub.asInterface(ServiceManager.getService("qti.radio.extphone"));
         boolean result = false;
         try {
             result = mIExtTelephony.isLocalEmergencyNumber(address);
@@ -101,7 +101,7 @@ public final class TelephonyUtil {
 
     public static boolean isPotentialLocalEmergencyNumber(String address) {
         IExtTelephony mIExtTelephony =
-            IExtTelephony.Stub.asInterface(ServiceManager.getService("extphone"));
+            IExtTelephony.Stub.asInterface(ServiceManager.getService("qti.radio.extphone"));
         boolean result = false;
         try {
             result = mIExtTelephony.isPotentialLocalEmergencyNumber(address);
