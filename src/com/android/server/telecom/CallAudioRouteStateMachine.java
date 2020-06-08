@@ -461,6 +461,8 @@ public class CallAudioRouteStateMachine extends StateMachine {
             switch (msg.what) {
                 case SWITCH_EARPIECE:
                 case USER_SWITCH_EARPIECE:
+                case SPEAKER_ON:
+                    // Ignore speakerphone state changes outside of calls.
                 case SPEAKER_OFF:
                     // Nothing to do here
                     return HANDLED;
@@ -486,7 +488,6 @@ public class CallAudioRouteStateMachine extends StateMachine {
                     return HANDLED;
                 case SWITCH_SPEAKER:
                 case USER_SWITCH_SPEAKER:
-                case SPEAKER_ON:
                     transitionTo(mQuiescentSpeakerRoute);
                     return HANDLED;
                 case SWITCH_FOCUS:
@@ -682,12 +683,13 @@ public class CallAudioRouteStateMachine extends StateMachine {
                     return HANDLED;
                 case SWITCH_HEADSET:
                 case USER_SWITCH_HEADSET:
+                case SPEAKER_ON:
+                    // Ignore speakerphone state changes outside of calls.
                 case SPEAKER_OFF:
                     // Nothing to do
                     return HANDLED;
                 case SWITCH_SPEAKER:
                 case USER_SWITCH_SPEAKER:
-                case SPEAKER_ON:
                     transitionTo(mQuiescentSpeakerRoute);
                     return HANDLED;
                 case SWITCH_FOCUS:
@@ -1023,6 +1025,8 @@ public class CallAudioRouteStateMachine extends StateMachine {
                     return HANDLED;
                 case SWITCH_BLUETOOTH:
                 case USER_SWITCH_BLUETOOTH:
+                case SPEAKER_ON:
+                    // Ignore speakerphone state changes outside of calls.
                 case SPEAKER_OFF:
                     // Nothing to do
                     return HANDLED;
@@ -1036,7 +1040,6 @@ public class CallAudioRouteStateMachine extends StateMachine {
                     return HANDLED;
                 case SWITCH_SPEAKER:
                 case USER_SWITCH_SPEAKER:
-                case SPEAKER_ON:
                     transitionTo(mQuiescentSpeakerRoute);
                     return HANDLED;
                 case SWITCH_FOCUS:
