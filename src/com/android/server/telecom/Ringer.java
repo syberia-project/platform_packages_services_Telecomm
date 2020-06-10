@@ -323,14 +323,29 @@ public class Ringer {
                     isVibratorEnabled(mContext, attributes.shouldRingForContact());
             boolean shouldApplyRampingRinger =
                     isVibratorEnabled && mSystemSettingsUtil.isRampingRingerEnabled(mContext);
-            boolean dndMode = !isRingerAudible;
 
             torchMode = Settings.System.getIntForUser(mContext.getContentResolver(),
                      Settings.System.FLASHLIGHT_ON_CALL, 0, UserHandle.USER_CURRENT);
 
-            boolean shouldFlashOnRing = (torchMode == 1 && !dndMode) ||
-                                        (torchMode == 2 && dndMode)  ||
-                                         torchMode == 3;
+            boolean shouldFlashOnRing = false;
+
+            if (torchMode != 0) {
+                switch (torchMode) {
+                    case 1: // Flash when ringer is audible
+                        shouldFlashOnRing = attributes.isRingerAudible();
+                        break;
+                    case 2: // Flash when ringer is not audible
+                        shouldFlashOnRing = !attributes.isRingerAudible();
+                        break;
+                    case 3: // Flash when entirely silent (no vibration or sound)
+                       shouldFlashOnRing = !isVibratorEnabled && !attributes.isRingerAudible();
+                       break;
+                    case 4: // Flash always
+                        shouldFlashOnRing = true;
+                        break;
+            }
+        }
+
             if (shouldFlashOnRing) {
                 blinkFlashlight();
             }
