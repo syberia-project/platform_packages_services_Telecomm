@@ -343,8 +343,16 @@ public class Ringer {
                     case 4: // Flash always
                         shouldFlashOnRing = true;
                         break;
+                }
             }
-        }
+            boolean ignoreDND = Settings.System.getIntForUser(mContext.getContentResolver(),
+                    Settings.System.FLASHLIGHT_ON_CALL_IGNORE_DND, 0,
+                    UserHandle.USER_CURRENT) == 1;
+            if (!ignoreDND && shouldFlashOnRing) { // respect DND
+                int zenMode = Settings.Global.getInt(mContext.getContentResolver(),
+                        Settings.Global.ZEN_MODE, Settings.Global.ZEN_MODE_OFF);
+                shouldFlashOnRing = zenMode == Settings.Global.ZEN_MODE_OFF;
+            }
 
             if (shouldFlashOnRing) {
                 blinkFlashlight();
