@@ -46,7 +46,7 @@ android_test {
     static_libs: [
         "android-ex-camera2",
         "guava",
-        "mockito-target-inline",
+        "mockito-target-extended",
         "androidx.test.rules",
         "platform-test-annotations",
         "androidx.legacy_legacy-support-core-ui",
@@ -78,7 +78,10 @@ android_test {
         "ims-ext-common",
     ],
 
-    jni_libs: ["libdexmakerjvmtiagent"],
+    jni_libs: [
+        "libdexmakerjvmtiagent",
+        "libstaticjvmtiagent",
+    ],
 
     aaptflags: [
         "--auto-add-overlay",
