@@ -1325,10 +1325,12 @@ public class InCallController extends CallsManagerListenerBase {
                 (systemPackageName != null && systemPackageName.equals(packageName))
                 ? getInCallServiceComponent(packageName, IN_CALL_SERVICE_TYPE_SYSTEM_UI)
                 : getInCallServiceComponent(packageName, IN_CALL_SERVICE_TYPE_DIALER_UI);
-        if (packageName != null && defaultDialerComponent == null) {
-            // The in call service of default phone app is disabled, send notification.
-            sendCrashedInCallServiceNotification(packageName);
-        }
+        /* TODO: in Android 12 re-enable this an InCallService is required by the dialer role.
+            if (packageName != null && defaultDialerComponent == null) {
+                // The in call service of default phone app is disabled, send notification.
+                sendCrashedInCallServiceNotification(packageName);
+            }
+        */
         return defaultDialerComponent;
     }
 
@@ -1826,12 +1828,11 @@ public class InCallController extends CallsManagerListenerBase {
         builder.setSmallIcon(R.drawable.ic_phone)
                 .setColor(mContext.getResources().getColor(R.color.theme_color))
                 .setContentTitle(
-                        mContext.getText(
-                                R.string.notification_crashedInCallService_title))
+                        mContext.getString(
+                                R.string.notification_incallservice_not_responding_title, appName))
                 .setStyle(new Notification.BigTextStyle()
-                        .bigText(mContext.getString(
-                                R.string.notification_crashedInCallService_body,
-                                appName)));
+                        .bigText(mContext.getText(
+                                R.string.notification_incallservice_not_responding_body)));
         notificationManager.notify(NOTIFICATION_TAG, IN_CALL_SERVICE_NOTIFICATION_ID,
                 builder.build());
     }
