@@ -213,6 +213,12 @@ public final class CallLogManager extends CallsManagerListenerBase {
         if (oldState == CallState.SELECT_PHONE_ACCOUNT) {
             return false;
         }
+
+        //Not log participant host
+        if (call.hasProperty(Connection.PROPERTY_IS_PARTICIPANT_HOST)) {
+            return false;
+        }
+
         // A conference call which had children should not be logged, unless it was remotely hosted.
         if (call.isConference() && call.hadChildren() &&
                 !call.hasProperty(Connection.PROPERTY_REMOTELY_HOSTED)) {
@@ -323,6 +329,8 @@ public final class CallLogManager extends CallsManagerListenerBase {
             creationTime = call.getCreationTimeMillis();
         }
 
+        creationTime = call.isChildCall() ? call.getConnectTimeMillis()
+                : call.getCreationTimeMillis();
         final long age = call.getAgeMillis();
 
         final String logNumber = getLogNumber(call);
