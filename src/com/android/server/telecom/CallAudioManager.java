@@ -16,9 +16,13 @@
 
 package com.android.server.telecom;
 
+import android.content.Context;
 import android.annotation.NonNull;
 import android.media.IAudioService;
+import android.media.AudioManager;
 import android.media.ToneGenerator;
+import android.provider.Settings;
+import android.provider.Settings.SettingNotFoundException;
 import android.telecom.CallAudioState;
 import android.telecom.Log;
 import android.telecom.VideoProfile;
@@ -120,6 +124,10 @@ public class CallAudioManager extends CallsManagerListenerBase {
         updateForegroundCall();
         if (shouldPlayDisconnectTone(oldState, newState)) {
             playToneForDisconnectedCall(call);
+        }
+
+        if (newState == CallState.ACTIVE && oldState == CallState.DIALING) {
+            playToneAfterCallConnected(call);
         }
 
         onCallLeavingState(call, oldState);
@@ -739,6 +747,22 @@ public class CallAudioManager extends CallsManagerListenerBase {
     private void removeCallFromAllBins(Call call) {
         for (int i = 0; i < mCallStateToCalls.size(); i++) {
             mCallStateToCalls.valueAt(i).remove(call);
+        }
+    }
+
+    private void playToneAfterCallConnected(Call call) {
+        final Context context = call.getContext();
+        ToneGenerator toneGenerator = new ToneGenerator(AudioManager.STREAM_MUSIC, 90);
+        try {
+            if (Settings.System.getInt(context.getContentResolver(),
+                        Settings.System.CALL_CONNECTED_TONE_ENABLED) == 1) {
+                if (toneGenerator != null) {
+                    Log.i(LOG_TAG, "playing tone");
+                    toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 150);
+                }
+            }
+        } catch (SettingNotFoundException e) {
+            Log.e(this, e, "Settings exception when reading playing tone config");
         }
     }
 

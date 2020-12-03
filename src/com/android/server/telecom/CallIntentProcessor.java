@@ -23,6 +23,8 @@ import android.widget.Toast;
 
 import java.util.concurrent.CompletableFuture;
 
+import org.codeaurora.ims.QtiCallConstants;
+
 /**
  * Single point of entry for all outgoing and incoming calls.
  * {@link com.android.server.telecom.components.UserCallIntentProcessor} serves as a trampoline that
@@ -128,6 +130,14 @@ public class CallIntentProcessor {
         if (clientExtras == null) {
             clientExtras = new Bundle();
         }
+        if (intent.hasExtra(TelecomManager.EXTRA_START_CALL_WITH_RTT)) {
+            boolean isStartRttCall = intent.getBooleanExtra(
+                    TelecomManager.EXTRA_START_CALL_WITH_RTT, false);
+            Log.d(CallIntentProcessor.class, "isStartRttCall = "+isStartRttCall);
+            if (!isStartRttCall) {
+                clientExtras.putBoolean(TelecomManager.EXTRA_START_CALL_WITH_RTT, isStartRttCall);
+            }
+        }
 
         if (intent.hasExtra(TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL)) {
             clientExtras.putBoolean(TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL,
@@ -140,6 +150,11 @@ public class CallIntentProcessor {
             String callsubject = intent.getStringExtra(TelecomManager.EXTRA_CALL_SUBJECT);
             clientExtras.putString(TelecomManager.EXTRA_CALL_SUBJECT, callsubject);
         }
+
+        final int callDomain = intent.getIntExtra(
+                QtiCallConstants.EXTRA_CALL_DOMAIN, QtiCallConstants.DOMAIN_AUTOMATIC);
+        Log.d(CallIntentProcessor.class, "callDomain = " + callDomain);
+        clientExtras.putInt(QtiCallConstants.EXTRA_CALL_DOMAIN, callDomain);
 
         final int videoState = intent.getIntExtra( TelecomManager.EXTRA_START_CALL_WITH_VIDEO_STATE,
                 VideoProfile.STATE_AUDIO_ONLY);
@@ -172,6 +187,7 @@ public class CallIntentProcessor {
         // If the broadcaster comes back with an immediate error, disconnect and show a dialog.
         NewOutgoingCallIntentBroadcaster.CallDisposition disposition = broadcaster.evaluateCall();
         if (disposition.disconnectCause != DisconnectCause.NOT_DISCONNECTED) {
+            callsManager.clearPendingMOEmergencyCall();
             showErrorDialog(context, disposition.disconnectCause);
             return;
         }

@@ -49,4 +49,11 @@ public class BluetoothAdapterProxy {
             return mBluetoothAdapter.removeActiveDevice(profiles);
         }
     }
+
+    public void closeProfileProxy(int profile, BluetoothProfile proxy) {
+        if (mBluetoothAdapter == null) {
+            return;
+        }
+        mBluetoothAdapter.closeProfileProxy(profile, proxy);
+    }
 }

@@ -83,6 +83,7 @@ import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Pair;
@@ -137,6 +138,9 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import org.codeaurora.ims.QtiCallConstants;
+import org.codeaurora.ims.utils.QtiCarrierConfigHelper;
+import org.codeaurora.ims.utils.QtiImsExtUtils;
 /**
  * Singleton.
  *
@@ -392,6 +396,14 @@ public class CallsManager extends Call.ListenerBase
 
     private boolean mHasActiveRttCall = false;
 
+    // Two global variables used to handle the Emergency Call when there
+    // is no room available for emergency call. Buffer the Emergency Call
+    // in mPendingMOEmerCall until the Current Active call is disconnected
+    // successfully and place the mPendingMOEmerCall followed by clearing
+    // buffer.
+    private Call mPendingMOEmerCall = null;
+    private Call mDisconnectingCall = null;
+
     /**
      * Listener to PhoneAccountRegistrar events.
      */
@@ -589,6 +601,7 @@ public class CallsManager extends Call.ListenerBase
         intentFilter.addAction(SystemContract.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED);
         context.registerReceiver(mReceiver, intentFilter);
         mGraphHandlerThreads = new LinkedList<>();
+        QtiCarrierConfigHelper.getInstance().setup(mContext);
     }
 
     public void setIncomingCallNotifier(IncomingCallNotifier incomingCallNotifier) {
@@ -770,6 +783,9 @@ public class CallsManager extends Call.ListenerBase
                             "dialing calls.");
                     rejectCallAndLog(incomingCall, result);
                 }
+            } else if (!isIncomingVideoCallAllowed(incomingCall)) {
+                Log.i(this, "onCallFilteringCompleted: MT Video Call rejecting.");
+                rejectCallAndLog(incomingCall, result);
             } else if (result.shouldScreenViaAudio) {
                 Log.i(this, "onCallFilteringCompleted: starting background audio processing");
                 answerCallForAudioProcessing(incomingCall);
@@ -799,6 +815,31 @@ public class CallsManager extends Call.ListenerBase
                         new MissedCallNotifier.CallInfo(incomingCall));
             }
         }
+    }
+
+    /**
+     * Determines if the incoming video call is allowed or not
+     *
+     * @param Call The incoming call.
+     * @return {@code false} if incoming video call is not allowed.
+     */
+    private static boolean isIncomingVideoCallAllowed(Call call) {
+        Bundle extras = call.getExtras();
+        if (extras == null || (!isIncomingVideoCall(call))) {
+            Log.w(TAG, "isIncomingVideoCallAllowed: null Extras or not an incoming video call " +
+                    "or allow video calls in low battery");
+            return true;
+        }
+
+        final boolean isLowBattery = extras.getBoolean(QtiCallConstants.LOW_BATTERY_EXTRA_KEY,
+                false);
+        Log.d(TAG, "isIncomingVideoCallAllowed: lowbattery = " + isLowBattery);
+        return !isLowBattery;
+    }
+
+    private static boolean isIncomingVideoCall(Call call) {
+        return (!VideoProfile.isAudioOnly(call.getVideoState()) &&
+            call.getState() == CallState.RINGING);
     }
 
     /**
@@ -1214,7 +1255,7 @@ public class CallsManager extends Call.ListenerBase
                 call.setIsVoipAudioMode(true);
             } else {
                 // Incoming call is managed, the active call is self-managed and can't be held.
-                // We need to set extras on it to indicate whether answering will cause a 
+                // We need to set extras on it to indicate whether answering will cause a
                 // active self-managed call to drop.
                 Call activeCall = (Call) mConnectionSvrFocusMgr.getCurrentFocusCall();
                 if (activeCall != null && !canHold(activeCall) && activeCall.isSelfManaged()) {
@@ -1730,8 +1771,14 @@ public class CallsManager extends Call.ListenerBase
 
                     boolean isVoicemail = isVoicemail(callToUse.getHandle(), accountToUse);
 
+                    int phoneId = SubscriptionManager.getPhoneId(
+                            mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(
+                            callToUse.getTargetPhoneAccount()));
                     boolean isRttSettingOn = isRttSettingOn(phoneAccountHandle);
-                    if (!isVoicemail && (isRttSettingOn || (extras != null
+                    if (!isVoicemail && (!VideoProfile.isVideo(callToUse.getVideoState())
+                            || QtiImsExtUtils.isRttSupportedOnVtCalls(
+                            phoneId, mContext))
+                            && (isRttSettingOn || (extras != null
                             && extras.getBoolean(TelecomManager.EXTRA_START_CALL_WITH_RTT,
                             false)))) {
                         Log.d(this, "Outgoing call requesting RTT, rtt setting is %b",
@@ -1753,7 +1800,7 @@ public class CallsManager extends Call.ListenerBase
                     if (isPotentialMMICode(handle) && !isSelfManaged) {
                         // Do not add the call if it is a potential MMI code.
                         callToUse.addListener(this);
-                    } else if (!mCalls.contains(callToUse)) {
+                    } else if (!mCalls.contains(callToUse) && mPendingMOEmerCall == null) {
                         // We check if mCalls already contains the call because we could
                         // potentially be reusing
                         // a call which was previously added (See {@link #reuseOutgoingCall}).
@@ -2245,7 +2292,12 @@ public class CallsManager extends Call.ListenerBase
                     disconnectSelfManagedCalls("place emerg call" /* reason */);
                 }
 
-                call.startCreateConnection(mPhoneAccountRegistrar);
+                if (mPendingMOEmerCall == null) {
+                    // If the account has been set, proceed to place the outgoing call.
+                    // Otherwise the connection will be initiated when the account is
+                    // set by the user.
+                    call.startCreateConnection(mPhoneAccountRegistrar);
+                }
             }
         } else if (mPhoneAccountRegistrar.getCallCapablePhoneAccounts(
                 requireCallCapableAccountByHandle ? callHandleScheme : null, false,
@@ -2410,7 +2462,8 @@ public class CallsManager extends Call.ListenerBase
      * @return {@code true} if the speakerphone should be enabled.
      */
     public boolean isSpeakerphoneAutoEnabledForVideoCalls(int videoState) {
-        return VideoProfile.isVideo(videoState) &&
+        return !isVideoCrbtVoLteCall(videoState) &&
+            VideoProfile.isVideo(videoState) &&
             !mWiredHeadsetManager.isPluggedIn() &&
             !mBluetoothRouteManager.isBluetoothAvailable() &&
             isSpeakerEnabledForVideoCalls();
@@ -2697,6 +2750,7 @@ public class CallsManager extends Call.ListenerBase
         if (handle == null) {
             return Collections.emptyList();
         }
+
         // If we're specifically looking for video capable accounts, then include that capability,
         // otherwise specify no additional capability constraints. When handling the emergency call,
         // it also needs to find the phone accounts excluded by CAPABILITY_EMERGENCY_CALLS_ONLY.
@@ -2706,6 +2760,15 @@ public class CallsManager extends Call.ListenerBase
                 mPhoneAccountRegistrar.getCallCapablePhoneAccounts(handle.getScheme(), false, user,
                         capabilities,
                         isEmergency ? 0 : PhoneAccount.CAPABILITY_EMERGENCY_CALLS_ONLY);
+
+        // If no phone account is found, let's query emergency call only account again.
+        // That is happening while emergency account has capability CAPABILITY_EMERGENCY_CALLS_ONLY.
+        if (isEmergency && allAccounts.size() == 0) {
+            Log.v(this, "Try to find an emergency call only phone account");
+            allAccounts =  mPhoneAccountRegistrar.
+                    getEmergencyCallOnlyPhoneAccounts(handle.getScheme(), user);
+        }
+
         if (mMaxNumberOfSimultaneouslyActiveSims < 0) {
             mMaxNumberOfSimultaneouslyActiveSims =
                     getTelephonyManager().getMaxNumberOfSimultaneouslyActiveSims();
@@ -2805,13 +2868,23 @@ public class CallsManager extends Call.ListenerBase
     }
 
     private boolean isRttSettingOn(PhoneAccountHandle handle) {
+        int phoneId = SubscriptionManager.getPhoneId(
+                mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(handle));
+        if (!SubscriptionManager.isValidPhoneId(phoneId)) {
+            Log.w(this, "isRttSettingOn: Invalid phone id = " + phoneId);
+            return false;
+        }
         boolean isRttModeSettingOn = Settings.Secure.getInt(mContext.getContentResolver(),
-                Settings.Secure.RTT_CALLING_MODE, 0) != 0;
+                Settings.Secure.RTT_CALLING_MODE + convertRttPhoneId(phoneId), 0) != 0;
         // If the carrier config says that we should ignore the RTT mode setting from the user,
         // assume that it's off (i.e. only make an RTT call if it's requested through the extra).
         boolean shouldIgnoreRttModeSetting = getCarrierConfigForPhoneAccount(handle)
                 .getBoolean(CarrierConfigManager.KEY_IGNORE_RTT_MODE_SETTING_BOOL, false);
         return isRttModeSettingOn && !shouldIgnoreRttModeSetting;
+    }
+
+    private static String convertRttPhoneId(int phoneId) {
+        return phoneId != 0 ? Integer.toString(phoneId) : "";
     }
 
     private PersistableBundle getCarrierConfigForPhoneAccount(PhoneAccountHandle handle) {
@@ -2997,6 +3070,14 @@ public class CallsManager extends Call.ListenerBase
             mCallLogManager.logCall(call, Calls.MISSED_TYPE, true, null);
         }
 
+        // Emergency MO call is still pending and current active call is
+        // disconnected succesfully. So initiating pending Emergency call
+        // now and clearing both pending and Disconnectcalls.
+        if (mPendingMOEmerCall != null && mDisconnectingCall == call) {
+            addCall(mPendingMOEmerCall);
+            mPendingMOEmerCall.startCreateConnection(mPhoneAccountRegistrar);
+            clearPendingMOEmergencyCall();
+        }
     }
 
     /**
@@ -3548,6 +3629,10 @@ public class CallsManager extends Call.ListenerBase
             // ensure that the tone generator stops playing the tone.
             if (newState == CallState.ON_HOLD && call.isDtmfTonePlaying()) {
                 stopDtmfTone(call);
+            }
+            // Maybe start a vibration for MO call.
+            if (newState == CallState.ACTIVE && !call.isIncoming() && !call.isUnknown()) {
+                mRinger.startVibratingForOutgoingCallActive();
             }
 
             // Unfortunately, in the telephony world the radio is king. So if the call notifies
@@ -4384,6 +4469,20 @@ public class CallsManager extends Call.ListenerBase
                 new MissedCallNotifier.CallInfoFactory());
     }
 
+    public boolean isVideoCrbtVoLteCall(int videoState) {
+        Call call = getDialingCall();
+        if (call == null) {
+            return false;
+        }
+        PhoneAccountHandle accountHandle = call.getTargetPhoneAccount();
+        int phoneId = SubscriptionManager.getPhoneId(
+                mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(accountHandle));
+        return QtiImsExtUtils.isCarrierConfigEnabled(phoneId, mContext,
+                "config_enable_video_crbt") && getDialingCall() != null
+            && !VideoProfile.isTransmissionEnabled(videoState)
+            && VideoProfile.isReceptionEnabled(videoState);
+    }
+
     public boolean isIncomingCallPermitted(PhoneAccountHandle phoneAccountHandle) {
         return isIncomingCallPermitted(null /* excludeCall */, phoneAccountHandle);
     }
@@ -5205,6 +5304,11 @@ public class CallsManager extends Call.ListenerBase
                 mPendingAction.performAction();
             }
         }
+    }
+
+    public void clearPendingMOEmergencyCall() {
+        mPendingMOEmerCall = null;
+        mDisconnectingCall = null;
     }
 
     public void resetConnectionTime(Call call) {
