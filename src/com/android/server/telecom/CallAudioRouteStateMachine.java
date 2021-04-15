@@ -1051,6 +1051,9 @@ public class CallAudioRouteStateMachine extends StateMachine {
                         } else {
                             transitionTo(mRingingBluetoothRoute);
                         }
+                    } else if (msg.arg1 == NO_FOCUS) {
+                        reinitialize();
+                        mCallAudioManager.notifyAudioOperationsComplete();
                     }
                     return HANDLED;
                 case BT_AUDIO_DISCONNECTED:
