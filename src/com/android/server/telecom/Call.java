@@ -76,6 +76,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.codeaurora.ims.QtiCallConstants;
 /**
  *  Encapsulates all aspects of a given phone call throughout its lifecycle, starting
  *  from the time the call intent was received by Telecom (vs. the time the call was
@@ -96,6 +97,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     public static final int SOURCE_CONNECTION_SERVICE = 1;
     /** Identifies extras changes which originated from an incall service. */
     public static final int SOURCE_INCALL_SERVICE = 2;
+    /** UNKNOWN original call type for video CRS. */
+    public static final int CALL_TYPE_UNKNOWN = -1;
 
     private static final int RTT_PIPE_READ_SIDE_INDEX = 0;
     private static final int RTT_PIPE_WRITE_SIDE_INDEX = 1;
@@ -2583,6 +2586,25 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
     Bundle getExtras() {
         return mExtras;
+    }
+
+    public boolean isCrsCall() {
+        if (mExtras == null) {
+            return false;
+        }
+        int crsType = mExtras.getInt(QtiCallConstants.EXTRA_CRS_TYPE,
+                QtiCallConstants.CRS_TYPE_INVALID);
+        return (crsType == (QtiCallConstants.CRS_TYPE_VIDEO
+                    | QtiCallConstants.CRS_TYPE_AUDIO))
+            || (crsType == QtiCallConstants.CRS_TYPE_AUDIO);
+    }
+
+    public int getOriginalCallType() {
+        if (mExtras == null) {
+            return CALL_TYPE_UNKNOWN;
+        }
+        return mExtras.getInt(QtiCallConstants.EXTRA_ORIGINAL_CALL_TYPE,
+                CALL_TYPE_UNKNOWN);
     }
 
     /**
