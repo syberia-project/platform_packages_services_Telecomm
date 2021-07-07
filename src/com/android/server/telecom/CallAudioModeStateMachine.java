@@ -385,6 +385,9 @@ public class CallAudioModeStateMachine extends StateMachine {
                 mCallAudioManager.setCallAudioRouteFocusState(
                         CallAudioRouteStateMachine.ACTIVE_FOCUS);
                 mHasFocus = true;
+                if (mAudioManager.getStreamVolume(AudioManager.STREAM_RING) == 0) {
+                    silenceCrs();
+                }
             } else {
                 Log.i(LOG_TAG, "RINGING state, try start ringing but not acquiring audio focus");
             }
