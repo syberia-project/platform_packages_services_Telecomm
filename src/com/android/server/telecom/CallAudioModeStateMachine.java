@@ -160,6 +160,7 @@ public class CallAudioModeStateMachine extends StateMachine {
     public static final int FOREGROUND_VOIP_MODE_CHANGE = 4001;
 
     public static final int RINGER_MODE_CHANGE = 5001;
+    public static final int CRS_CHANGE_SILENCE = 5002;
 
     // Used to indicate that Telecom is done doing things to the AudioManager and that it's safe
     // to release focus for other apps to take over.
@@ -187,6 +188,7 @@ public class CallAudioModeStateMachine extends StateMachine {
         put(FOREGROUND_VOIP_MODE_CHANGE, "FOREGROUND_VOIP_MODE_CHANGE");
         put(RINGER_MODE_CHANGE, "RINGER_MODE_CHANGE");
         put(AUDIO_OPERATIONS_COMPLETE, "AUDIO_OPERATIONS_COMPLETE");
+        put(CRS_CHANGE_SILENCE, "CRS_CHANGE_SILENCE");
 
         put(RUN_RUNNABLE, "RUN_RUNNABLE");
     }};
@@ -371,18 +373,28 @@ public class CallAudioModeStateMachine extends StateMachine {
         private boolean mHasFocus = false;
         private void tryStartRinging() {
             if (mHasFocus) {
-                Log.i(LOG_TAG, "CrsFocusState#tryStartRinging -- audio focus previously"
-                        + " acquired and CRS already playing -- skipping.");
+                Log.i(LOG_TAG, "CrsFocusState#tryStartRinging -- audio focus previously acquired.");
                 return;
             }
 
-            Log.i(LOG_TAG, "RINGING state, try start video CRS");
-            mAudioManager.requestAudioFocusForCall(AudioManager.STREAM_VOICE_CALL,
-                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
-            mAudioManager.setMode(AudioManager.MODE_IN_CALL);
-            mCallAudioManager.setCallAudioRouteFocusState(
-                    CallAudioRouteStateMachine.ACTIVE_FOCUS);
-            mHasFocus = true;
+            if (mCallAudioManager.startRinging()) {
+                Log.i(LOG_TAG, "RINGING state, try start video CRS");
+                mAudioManager.requestAudioFocusForCall(AudioManager.STREAM_VOICE_CALL,
+                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+                mAudioManager.setMode(AudioManager.MODE_IN_CALL);
+                mCallAudioManager.setCallAudioRouteFocusState(
+                        CallAudioRouteStateMachine.ACTIVE_FOCUS);
+                mHasFocus = true;
+            } else {
+                Log.i(LOG_TAG, "RINGING state, try start ringing but not acquiring audio focus");
+            }
+        }
+
+        private void silenceCrs() {
+            Log.i(this, "Silence CRS.");
+            mCallAudioManager.setCallAudioRouteFocusState(CallAudioRouteStateMachine.NO_FOCUS);
+            mAudioManager.setMode(AudioManager.MODE_NORMAL);
+            mHasFocus = false;
         }
 
         @Override
@@ -453,6 +465,10 @@ public class CallAudioModeStateMachine extends StateMachine {
                 case AUDIO_OPERATIONS_COMPLETE:
                     Log.w(LOG_TAG, "Should not be seeing AUDIO_OPERATIONS_COMPLETE in a focused"
                             + " state");
+                    return HANDLED;
+                case CRS_CHANGE_SILENCE:
+                    Log.i(LOG_TAG, "CRS state, received CRS_CHANGE_SILENCE");
+                    silenceCrs();
                     return HANDLED;
                 default:
                     // The forced focus switch commands are handled by BaseState.
