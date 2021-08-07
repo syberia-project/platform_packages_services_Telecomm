@@ -25,7 +25,6 @@ import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.ContentObserver;
-import android.provider.Settings;
 import android.os.VibrationEffect;
 import android.telecom.Log;
 import android.telecom.TelecomManager;
@@ -689,8 +688,10 @@ public class Ringer {
         stopRinging();
 
         if (Settings.System.getIntForUser(mContext.getContentResolver(),
-                Settings.System.VIBRATE_ON_CALLWAITING, 0, UserHandle.USER_CURRENT) == 1) {
-            vibrate(200, 300, 500);
+                Settings.System.INCALL_FEEDBACK_VIBRATE, 0, UserHandle.USER_CURRENT) == 1) {
+            if (mVibrator.hasVibrator()) {
+                mVibrator.vibrate(VibrationEffect.get(VibrationEffect.EFFECT_THUD));
+            }
         }
 
         if (mCallWaitingPlayer == null) {
@@ -830,13 +831,6 @@ public class Ringer {
             || mSystemSettingsUtil.applyRampingRinger(context);
     }
 
-    public void vibrate(int v1, int p1, int v2) {
-        long[] pattern = new long[] {
-            0, v1, p1, v2
-        };
-        ((Vibrator) mContext.getSystemService(Context.VIBRATOR_SERVICE)).vibrate(pattern, -1);
-    }
-
     private void updateVibrationPattern() {
         mVibrationPattern = Settings.System.getIntForUser(mContext.getContentResolver(),
             Settings.System.RINGTONE_VIBRATION_PATTERN, 0, UserHandle.USER_CURRENT);
@@ -879,7 +873,7 @@ public class Ringer {
                         Long.parseLong(customVib[1]), // How long to vibrate
                         400, // Delay
                         Long.parseLong(customVib[2]), // How long to vibrate
-                        400, // How long to wait before vibrating again            
+                        400, // How long to wait before vibrating again
                     };
                     mDefaultVibrationEffect = mVibrationEffectProxy.createWaveform(vibPattern,
                             SEVEN_ELEMENTS_VIBRATION_AMPLITUDE, REPEAT_SIMPLE_VIBRATION_AT);
