@@ -195,6 +195,7 @@ public class Ringer {
 
     private Handler mHandler = null;
     private int torchMode;
+    private boolean mBlinkActive;
 
     /**
      * Use lock different from the Telecom sync because ringing process is asynchronous outside that
@@ -354,12 +355,13 @@ public class Ringer {
                 shouldFlashOnRing = zenMode == Settings.Global.ZEN_MODE_OFF;
             }
 
-            if (shouldFlashOnRing) {
+            if (shouldFlashOnRing && !mBlinkActive) {
+                mBlinkActive = true;
                 blinkFlashlight();
             }
 
-            final boolean shouldFlash = attributes.shouldRingForContact() && !shouldFlashOnRing;
-            if (mAccessibilityManagerAdapter != null && shouldFlash) {
+            final boolean shouldFlash = attributes.shouldRingForContact();
+            if (mAccessibilityManagerAdapter != null && (shouldFlash && !shouldFlashOnRing)) {
                 Log.addEvent(foregroundCall, LogUtils.Events.FLASH_NOTIFICATION_START);
                 getHandler().post(() ->
                         mAccessibilityManagerAdapter.startFlashNotificationSequence(mContext,
@@ -594,6 +596,8 @@ public class Ringer {
     }
 
     public void startCallWaiting(Call call, String reason) {
+        mBlinkActive = false;
+
         if (mSystemSettingsUtil.isTheaterModeOn(mContext)) {
             return;
         }
@@ -641,8 +645,8 @@ public class Ringer {
                 mRingingCall = null;
             }
 
+            mBlinkActive = false;
             mRingtonePlayer.stop();
-            torchToggler.stop();
 
             if (mIsVibrating) {
                 Log.addEvent(mVibratingCall, LogUtils.Events.STOP_VIBRATOR);
@@ -804,7 +808,6 @@ public class Ringer {
 
     private class TorchToggler extends AsyncTask {
 
-        private boolean shouldStop = false;
         private CameraManager cameraManager;
         private int duration = 500;
         private boolean hasFlash = true;
@@ -820,16 +823,12 @@ public class Ringer {
             hasFlash = context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH);
         }
 
-        void stop() {
-            shouldStop = true;
-        }
-
         @Override
         protected Object doInBackground(Object[] objects) {
             if (hasFlash) {
                 try {
                     String cameraId = cameraManager.getCameraIdList()[0];
-                    while (!shouldStop) {
+                    while (mBlinkActive) {
                         cameraManager.setTorchMode(cameraId, true);
                         Thread.sleep(duration);
 
