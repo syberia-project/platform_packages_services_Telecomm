@@ -94,11 +94,8 @@ public class RingtoneFactory {
             Context contextToUse = hasDefaultRingtoneForUser(userContext) ? userContext : mContext;
             Uri defaultRingtoneUri;
             if (UserManager.get(contextToUse).isUserUnlocked(contextToUse.getUserId())) {
-                defaultRingtoneUri =
-                        RingtoneManager.getActualDefaultRingtoneUriForPhoneAccountHandle(
-                                contextToUse,
-                                RingtoneManager.TYPE_RINGTONE,
-                                incomingCall.getTargetPhoneAccount());
+                defaultRingtoneUri = RingtoneManager.getActualDefaultRingtoneUri(contextToUse,
+                        RingtoneManager.TYPE_RINGTONE);
                 if (defaultRingtoneUri == null) {
                     Log.i(this, "getRingtone: defaultRingtoneUri for user is null.");
                 }
